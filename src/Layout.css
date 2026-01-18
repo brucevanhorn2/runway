@@ -1,0 +1,222 @@
+/* Override Ant Design default styles for dark theme */
+.ant-layout {
+  background: #1e1e1e;
+}
+
+.ant-layout-header {
+  background: #1f1f1f !important;
+}
+
+.ant-layout-content {
+  background: #1e1e1e;
+}
+
+/* Tree component styling */
+.ant-tree {
+  background: transparent;
+  color: #d4d4d4;
+}
+
+.ant-tree-node-content-wrapper {
+  color: #d4d4d4;
+}
+
+.ant-tree-node-content-wrapper:hover {
+  background: #252526;
+}
+
+.ant-tree .ant-tree-node-selected .ant-tree-node-content-wrapper {
+  background: #0e639c !important;
+}
+
+.ant-tree-icon {
+  margin-right: 4px;
+}
+
+/* Splitter styling */
+.ant-splitter {
+  background: #1e1e1e;
+}
+
+.ant-splitter-pane {
+  overflow: hidden !important;
+}
+
+/* Tabs styling */
+.ant-tabs {
+  color: #d4d4d4;
+}
+
+.ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+
+.ant-tabs-tab {
+  color: #999999 !important;
+  border-color: #333 !important;
+  background: #2d2d2d !important;
+  padding: 4px 12px !important;
+}
+
+.ant-tabs-tab:hover {
+  color: #d4d4d4 !important;
+}
+
+.ant-tabs-tab-active {
+  color: #d4d4d4 !important;
+  background: #1e1e1e !important;
+  border-bottom-color: #1e1e1e !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #0e639c !important;
+}
+
+.ant-tabs-content {
+  height: 100%;
+}
+
+.ant-tabs-tabpane {
+  height: 100%;
+}
+
+/* Button styling */
+.ant-btn-primary {
+  background: #0e639c;
+  border-color: #0e639c;
+}
+
+.ant-btn-primary:hover {
+  background: #1177bb;
+  border-color: #1177bb;
+}
+
+/* Scrollbar styling for webkit browsers */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #464647;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* React Flow overrides */
+.react-flow__background {
+  background: #1e1e1e !important;
+}
+
+.react-flow__controls {
+  background: #252526;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
+.react-flow__controls-button {
+  background: #252526 !important;
+  border-color: #333 !important;
+  fill: #d4d4d4 !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #333 !important;
+}
+
+.react-flow__minimap {
+  background: #252526 !important;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
+/* Pane headers */
+.pane-header {
+  padding: 8px 12px;
+  background: #252526;
+  color: #d4d4d4;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #333;
+  user-select: none;
+}
+
+.pane-header button {
+  background: none;
+  border: none;
+  color: #d4d4d4;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.pane-header button:hover {
+  opacity: 1;
+}
+
+/* File tree items */
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #d4d4d4;
+  font-size: 13px;
+}
+
+.file-tree-item:hover {
+  background: #252526;
+}
+
+.file-tree-item.selected {
+  background: #0e639c;
+}
+
+.file-tree-item .file-icon {
+  color: #6997d5;
+  font-size: 14px;
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  text-align: center;
+  padding: 24px;
+}
+
+.empty-state .icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-state .title {
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: #999;
+}
+
+.empty-state .subtitle {
+  font-size: 13px;
+  color: #666;
+}

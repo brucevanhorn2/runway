@@ -1,0 +1,74 @@
+{
+  "name": "runway",
+  "version": "0.1.0",
+  "description": "PostgreSQL DDL Visualizer - Schema modeling with plain SQL",
+  "main": "src/main.js",
+  "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "@monaco-editor/react": "^4.7.0",
+    "antd": "^6.1.4",
+    "pgsql-ast-parser": "^12.0.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "reactflow": "^11.11.4",
+    "uuid": "^13.0.0",
+    "chokidar": "^3.6.0",
+    "dagre": "^0.8.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-react": "^7.28.5",
+    "babel-loader": "^10.0.0",
+    "concurrently": "^9.2.1",
+    "css-loader": "^7.1.2",
+    "electron": "^27.0.0",
+    "electron-builder": "^26.4.0",
+    "html-webpack-plugin": "^5.6.5",
+    "monaco-editor-webpack-plugin": "^7.1.1",
+    "style-loader": "^4.0.0",
+    "wait-on": "^7.2.0",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  },
+  "scripts": {
+    "start": "webpack serve --mode development",
+    "build": "webpack --mode production",
+    "dev": "concurrently \"npm start\" \"wait-on http://localhost:3001 && electron .\"",
+    "electron": "electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.runway.app",
+    "productName": "Runway",
+    "files": [
+      "dist/**/*",
+      "src/main.js",
+      "src/preload.js",
+      "src/services/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development"
+    }
+  },
+  "keywords": ["postgresql", "ddl", "schema", "visualizer", "erd"],
+  "author": "",
+  "license": "MIT"
+}
