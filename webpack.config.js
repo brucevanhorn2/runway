@@ -32,7 +32,7 @@ module.exports = {
     extensions: ['.js', '.jsx'],
   },
   devServer: {
-    port: 3001, // Different port from Context Kiln
+    port: 2112, // Changed port to avoid conflict
     hot: true,
     historyApiFallback: true,
   },

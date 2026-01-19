@@ -7,13 +7,13 @@
     "@ant-design/icons": "^6.1.0",
     "@monaco-editor/react": "^4.7.0",
     "antd": "^6.1.4",
+    "chokidar": "^3.6.0",
+    "dagre": "^0.8.5",
     "pgsql-ast-parser": "^12.0.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "reactflow": "^11.11.4",
-    "uuid": "^13.0.0",
-    "chokidar": "^3.6.0",
-    "dagre": "^0.8.5"
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",
@@ -21,6 +21,7 @@
     "@babel/preset-react": "^7.28.5",
     "babel-loader": "^10.0.0",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "css-loader": "^7.1.2",
     "electron": "^27.0.0",
     "electron-builder": "^26.4.0",
@@ -35,7 +36,7 @@
   "scripts": {
     "start": "webpack serve --mode development",
     "build": "webpack --mode production",
-    "dev": "concurrently \"npm start\" \"wait-on http://localhost:3001 && electron .\"",
+    "dev": "concurrently \"npm start\" \"wait-on http://localhost:2112 && cross-env NODE_ENV=development electron .\"",
     "electron": "electron .",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
@@ -57,18 +58,59 @@
       "output": "release"
     },
     "mac": {
+      "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
-      "target": ["dmg", "zip"]
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        },
+        "zip"
+      ]
+    },
+    "dmg": {
+      "icon": "build/icon.png",
+      "background": "build/dmg-background.png",
+      "iconSize": 100,
+      "contents": [
+        {
+          "x": 380,
+          "y": 280,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 122,
+          "y": 280,
+          "type": "file"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 460
+      }
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development"
     }
   },
-  "keywords": ["postgresql", "ddl", "schema", "visualizer", "erd"],
+  "keywords": [
+    "postgresql",
+    "ddl",
+    "schema",
+    "visualizer",
+    "erd"
+  ],
   "author": "",
   "license": "MIT"
 }

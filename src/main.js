@@ -20,7 +20,7 @@ const createWindow = () => {
   });
 
   const startUrl = isDev
-    ? 'http://localhost:3001'
+    ? 'http://localhost:2112'
     : `file://${path.join(__dirname, '../dist/index.html')}`;
 
   mainWindow.loadURL(startUrl);
@@ -41,13 +41,30 @@ const createWindow = () => {
 };
 
 const createMenu = () => {
+  const isMac = process.platform === 'darwin';
+  
   const template = [
+    // macOS app menu (will be replaced with "Runway" or "Electron" on macOS)
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
     {
       label: 'File',
       submenu: [
         {
           label: 'Open Folder',
-          accelerator: 'Ctrl+O',
+          accelerator: 'CmdOrCtrl+O',
           click: async () => {
             const result = await dialog.showOpenDialog(mainWindow, {
               properties: ['openDirectory'],
@@ -64,39 +81,41 @@ const createMenu = () => {
         },
         {
           label: 'Export as SVG',
-          accelerator: 'Ctrl+Shift+S',
+          accelerator: 'CmdOrCtrl+Shift+S',
           click: () => {
             mainWindow.webContents.send('export-svg');
           },
         },
         {
           label: 'Export as PlantUML',
-          accelerator: 'Ctrl+Shift+P',
+          accelerator: 'CmdOrCtrl+Shift+P',
           click: () => {
             mainWindow.webContents.send('export-plantuml');
           },
         },
-        {
-          type: 'separator',
-        },
-        {
-          label: 'Exit',
-          accelerator: 'Ctrl+Q',
-          click: () => {
-            app.quit();
+        ...(!isMac ? [
+          {
+            type: 'separator',
           },
-        },
+          {
+            label: 'Exit',
+            accelerator: 'CmdOrCtrl+Q',
+            click: () => {
+              app.quit();
+            },
+          },
+        ] : []),
       ],
     },
     {
       label: 'Edit',
       submenu: [
-        { label: 'Undo', accelerator: 'Ctrl+Z', role: 'undo' },
-        { label: 'Redo', accelerator: 'Ctrl+Y', role: 'redo' },
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', role: 'undo' },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Y', role: 'redo' },
         { type: 'separator' },
-        { label: 'Cut', accelerator: 'Ctrl+X', role: 'cut' },
-        { label: 'Copy', accelerator: 'Ctrl+C', role: 'copy' },
-        { label: 'Paste', accelerator: 'Ctrl+V', role: 'paste' },
+        { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
+        { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
+        { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
       ],
     },
     {
@@ -104,7 +123,7 @@ const createMenu = () => {
       submenu: [
         {
           label: 'Reload',
-          accelerator: 'Ctrl+R',
+          accelerator: 'CmdOrCtrl+R',
           click: () => {
             mainWindow.webContents.reload();
           },
@@ -119,7 +138,7 @@ const createMenu = () => {
         { type: 'separator' },
         {
           label: 'Fit Diagram',
-          accelerator: 'Ctrl+0',
+          accelerator: 'CmdOrCtrl+0',
           click: () => {
             mainWindow.webContents.send('fit-diagram');
           },

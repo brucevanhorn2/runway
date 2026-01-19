@@ -20,7 +20,7 @@ function FileTree({ files, onFileSelect, highlightedFile }) {
         <FolderOutlined className="icon" />
         <div className="title">No folder open</div>
         <div className="subtitle">
-          Use File → Open Folder (Ctrl+O) to open a folder containing SQL files
+          Use File → Open Folder (⌘O) to open a folder containing SQL files
         </div>
       </div>
     );
