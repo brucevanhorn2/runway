@@ -9,7 +9,7 @@ import './Layout.css';
 // Import context providers
 import { SchemaProvider, useSchema } from './contexts/SchemaContext';
 import { EditorProvider, useEditor } from './contexts/EditorContext';
-import { SelectionProvider } from './contexts/SelectionContext';
+import { SelectionProvider, useSelection } from './contexts/SelectionContext';
 
 // Import parser
 import { parseAllFiles } from './parser';
@@ -22,7 +22,7 @@ function LayoutInner() {
   const [openFolderPath, setOpenFolderPath] = useState(null);
   const [highlightedFile, setHighlightedFile] = useState(null);
 
-  const { updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
+  const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile } = useEditor();
 
   // Parse all DDL files and update schema
@@ -61,11 +61,19 @@ function LayoutInner() {
     }
   }, [openFolderPath, parseSchema]);
 
+  const { selectTable } = useSelection();
+
   // Handle file selection in tree
   const handleFileSelect = useCallback((file) => {
     openFile(file.path, file.name);
     setHighlightedFile(file.path);
-  }, [openFile]);
+    
+    // Find and select the table defined in this file
+    const table = schema.tables.find(t => t.sourceFile === file.path);
+    if (table) {
+      selectTable(table.name);
+    }
+  }, [openFile, selectTable, schema]);
 
   // Handle table selection in diagram - highlight corresponding file
   const handleTableSelect = useCallback((tableName, sourceFile) => {

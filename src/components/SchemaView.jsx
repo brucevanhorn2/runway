@@ -15,15 +15,18 @@ import dagre from 'dagre';
 import { useSchema } from '../contexts/SchemaContext';
 import { useSelection } from '../contexts/SelectionContext';
 import TableNode from './TableNode';
+import TypeNode from './TypeNode';
 import { generatePlantUML, generateSVGFromSchema } from '../services/ExportService';
 
 // Custom node types
 const nodeTypes = {
   table: TableNode,
+  type: TypeNode,
 };
 
 // Layout constants
 const NODE_WIDTH = 220;
+const TYPE_NODE_WIDTH = 180;
 const HEADER_HEIGHT = 32;
 const ROW_HEIGHT = 24;
 const NODE_PADDING = 12;
@@ -33,6 +36,13 @@ const NODE_PADDING = 12;
  */
 function calculateNodeHeight(table) {
   return HEADER_HEIGHT + (table.columns.length * ROW_HEIGHT) + NODE_PADDING;
+}
+
+/**
+ * Calculate dynamic node height for enum types
+ */
+function calculateTypeHeight(type) {
+  return HEADER_HEIGHT + (type.values.length * ROW_HEIGHT) + NODE_PADDING;
 }
 
 /**
@@ -55,9 +65,15 @@ function getLayoutedElements(nodes, edges, schema) {
 
   // Set node dimensions based on actual content
   nodes.forEach((node) => {
-    const table = schema.tables.find(t => t.name === node.id);
-    const height = table ? calculateNodeHeight(table) : 150;
-    dagreGraph.setNode(node.id, { width: NODE_WIDTH, height });
+    if (node.type === 'type') {
+      const type = schema.types.find(t => t.name === node.id);
+      const height = type ? calculateTypeHeight(type) : 100;
+      dagreGraph.setNode(node.id, { width: TYPE_NODE_WIDTH, height });
+    } else {
+      const table = schema.tables.find(t => t.name === node.id);
+      const height = table ? calculateNodeHeight(table) : 150;
+      dagreGraph.setNode(node.id, { width: NODE_WIDTH, height });
+    }
   });
 
   edges.forEach((edge) => {
@@ -68,13 +84,22 @@ function getLayoutedElements(nodes, edges, schema) {
 
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const table = schema.tables.find(t => t.name === node.id);
-    const height = table ? calculateNodeHeight(table) : 150;
+    let height, width;
+    
+    if (node.type === 'type') {
+      const type = schema.types.find(t => t.name === node.id);
+      height = type ? calculateTypeHeight(type) : 100;
+      width = TYPE_NODE_WIDTH;
+    } else {
+      const table = schema.tables.find(t => t.name === node.id);
+      height = table ? calculateNodeHeight(table) : 150;
+      width = NODE_WIDTH;
+    }
 
     return {
       ...node,
       position: {
-        x: nodeWithPosition.x - NODE_WIDTH / 2,
+        x: nodeWithPosition.x - width / 2,
         y: nodeWithPosition.y - height / 2,
       },
     };
@@ -86,8 +111,9 @@ function getLayoutedElements(nodes, edges, schema) {
 function SchemaViewInner({ onTableSelect }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
-  const { fitView } = useReactFlow();
+  const { fitView, setCenter } = useReactFlow();
   const nodePositionsRef = useRef({});
+  const prevSelectedTableRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -129,6 +155,19 @@ function SchemaViewInner({ onTableSelect }) {
       });
     });
 
+    // Add type (enum) nodes
+    schema.types.forEach((type) => {
+      schemaNodes.push({
+        id: type.name,
+        type: 'type',
+        position: { x: 0, y: 0 }, // Will be set by dagre
+        data: {
+          type,
+          isSelected: false, // TODO: add type selection support
+        },
+      });
+    });
+
     return { schemaNodes, schemaEdges };
   }, [schema, selectedTable]);
 
@@ -155,6 +194,33 @@ function SchemaViewInner({ onTableSelect }) {
       nodePositionsRef.current = {};
     }
   }, [schemaNodes, schemaEdges, schema, setNodes, setEdges]);
+
+  // Focus on selected table when selection changes
+  useEffect(() => {
+    if (selectedTable && selectedTable !== prevSelectedTableRef.current) {
+      const node = nodes.find(n => n.id === selectedTable);
+      if (node && node.position) {
+        // Calculate the center of the node
+        let height, width;
+        if (node.type === 'type') {
+          const type = schema.types.find(t => t.name === selectedTable);
+          height = type ? calculateTypeHeight(type) : 100;
+          width = TYPE_NODE_WIDTH;
+        } else {
+          const table = schema.tables.find(t => t.name === selectedTable);
+          height = table ? calculateNodeHeight(table) : 150;
+          width = NODE_WIDTH;
+        }
+        
+        const centerX = node.position.x + width / 2;
+        const centerY = node.position.y + height / 2;
+        
+        // Center the view on this node with animation
+        setCenter(centerX, centerY, { zoom: 1, duration: 400 });
+      }
+      prevSelectedTableRef.current = selectedTable;
+    }
+  }, [selectedTable, nodes, schema, setCenter]);
 
   // Handle export commands from menu
   useEffect(() => {

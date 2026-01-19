@@ -12,6 +12,7 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    title: 'Runway',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

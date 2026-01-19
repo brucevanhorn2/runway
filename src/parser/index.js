@@ -143,8 +143,9 @@ function parseSequences(content, sourceFile) {
 function parseTables(content, sourceFile) {
   const tables = [];
 
-  // Match CREATE TABLE with its body
-  const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)\s*\(([\s\S]*?)\)\s*;/gi;
+  // Match CREATE TABLE with its body - handle optional semicolon at end
+  // Use a more robust pattern that matches the full table definition
+  const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)\s*\(([\s\S]*?)\)(?:\s*;|\s*$|(?=\s*CREATE))/gim;
 
   let match;
   while ((match = tableRegex.exec(content)) !== null) {
