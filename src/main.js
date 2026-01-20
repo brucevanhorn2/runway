@@ -163,10 +163,18 @@ async function openFolder(folderPath) {
       fileWatcher = null;
     }
 
-    // Scan for SQL files
-    const files = await scanSqlFiles(folderPath);
+    // Scan for SQL files and determine their types
+    const allFiles = await scanSqlFiles(folderPath);
+    const files = [];
+    for (const file of allFiles) {
+      const content = await fs.readFile(file.path, 'utf-8');
+      files.push({
+        ...file,
+        fileType: getFileType(content),
+      });
+    }
 
-    // Send folder data to renderer
+    // Send folder data to renderer (all files with their types)
     mainWindow.webContents.send('folder-opened', {
       path: folderPath,
       files: files,
@@ -178,11 +186,20 @@ async function openFolder(folderPath) {
       ignoreInitial: true,
     });
 
-    fileWatcher.on('add', (filePath) => {
-      mainWindow.webContents.send('file-added', { path: filePath });
+    fileWatcher.on('add', async (filePath) => {
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        mainWindow.webContents.send('file-added', {
+          path: filePath,
+          fileType: getFileType(content),
+        });
+      } catch (error) {
+        console.error('[Main] Error reading added file:', error);
+      }
     });
 
-    fileWatcher.on('change', (filePath) => {
+    fileWatcher.on('change', async (filePath) => {
+      // Always notify on change - the renderer will re-parse and filter
       mainWindow.webContents.send('file-changed', { path: filePath });
     });
 
@@ -227,6 +244,38 @@ async function scanSqlFiles(dirPath, basePath = dirPath) {
 }
 
 /**
+ * Check if SQL content contains diagram-relevant DDL (CREATE TABLE or CREATE TYPE ENUM)
+ * Excludes files that only contain database setup (CREATE DATABASE, GRANT, etc.)
+ */
+function containsDiagramDDL(content) {
+  const fileType = getFileType(content);
+  return fileType === 'table' || fileType === 'enum';
+}
+
+/**
+ * Determine the type of DDL content in a SQL file
+ * Returns: 'table', 'enum', or 'other'
+ */
+function getFileType(content) {
+  // Remove comments to avoid false positives
+  const cleanContent = content
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // Check for CREATE TABLE (prioritize table over enum if both present)
+  if (/CREATE\s+TABLE\s+/i.test(cleanContent)) {
+    return 'table';
+  }
+
+  // Check for CREATE TYPE ... AS ENUM
+  if (/CREATE\s+TYPE\s+[\w."]+\s+AS\s+ENUM/i.test(cleanContent)) {
+    return 'enum';
+  }
+
+  return 'other';
+}
+
+/**
  * Setup IPC handlers
  */
 const setupIPC = () => {
@@ -252,7 +301,7 @@ const setupIPC = () => {
     }
   });
 
-  // Read all SQL files in folder
+  // Read all SQL files in folder (filtered to only diagram-relevant DDL)
   ipcMain.handle('folder:read-all', async (event, folderPath) => {
     try {
       const files = await scanSqlFiles(folderPath);
@@ -260,10 +309,13 @@ const setupIPC = () => {
 
       for (const file of files) {
         const content = await fs.readFile(file.path, 'utf-8');
-        fileContents.push({
-          ...file,
-          content,
-        });
+        // Only include files that contain CREATE TABLE or CREATE TYPE ENUM
+        if (containsDiagramDDL(content)) {
+          fileContents.push({
+            ...file,
+            content,
+          });
+        }
       }
 
       return { success: true, files: fileContents };
