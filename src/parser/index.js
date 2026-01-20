@@ -125,44 +125,49 @@ function parseTable(statement, sourceFile) {
     sourceFile,
   };
 
-  if (!statement.columns) return table;
+  // Parse columns
+  if (statement.columns) {
+    for (const item of statement.columns) {
+      if (item.kind === 'column') {
+        const column = parseColumn(item);
+        table.columns.push(column);
 
-  for (const item of statement.columns) {
-    if (item.kind === 'column') {
-      const column = parseColumn(item);
-      table.columns.push(column);
-
-      // Extract inline constraints
-      if (item.constraints) {
-        for (const constraint of item.constraints) {
-          if (constraint.type === 'primary key') {
-            table.primaryKey.push(column.name);
-          } else if (constraint.type === 'unique') {
-            table.uniqueConstraints.push([column.name]);
-          } else if (constraint.type === 'reference') {
-            table.foreignKeys.push({
-              constraintName: null,
-              columns: [column.name],
-              referencedTable: cleanIdentifier(constraint.foreignTable),
-              referencedColumns: constraint.foreignColumns 
-                ? constraint.foreignColumns.map(c => cleanIdentifier(c))
-                : [column.name],
-            });
+        // Extract inline constraints
+        if (item.constraints) {
+          for (const constraint of item.constraints) {
+            if (constraint.type === 'primary key') {
+              table.primaryKey.push(column.name);
+            } else if (constraint.type === 'unique') {
+              table.uniqueConstraints.push([column.name]);
+            } else if (constraint.type === 'reference') {
+              table.foreignKeys.push({
+                constraintName: null,
+                columns: [column.name],
+                referencedTable: cleanIdentifier(constraint.foreignTable),
+                referencedColumns: constraint.foreignColumns 
+                  ? constraint.foreignColumns.map(c => cleanIdentifier(c))
+                  : [column.name],
+              });
+            }
           }
         }
       }
-    } else if (item.kind === 'constraint') {
-      // Table-level constraints
-      if (item.type === 'primary key') {
-        table.primaryKey.push(...item.columns.map(c => cleanIdentifier(c)));
-      } else if (item.type === 'unique') {
-        table.uniqueConstraints.push(item.columns.map(c => cleanIdentifier(c)));
-      } else if (item.type === 'foreign key') {
+    }
+  }
+
+  // Parse table-level constraints (separate from columns array)
+  if (statement.constraints) {
+    for (const constraint of statement.constraints) {
+      if (constraint.type === 'primary key') {
+        table.primaryKey.push(...constraint.columns.map(c => cleanIdentifier(c)));
+      } else if (constraint.type === 'unique') {
+        table.uniqueConstraints.push(constraint.columns.map(c => cleanIdentifier(c)));
+      } else if (constraint.type === 'foreign key') {
         table.foreignKeys.push({
-          constraintName: item.constraintName ? cleanIdentifier(item.constraintName) : null,
-          columns: item.localColumns.map(c => cleanIdentifier(c)),
-          referencedTable: cleanIdentifier(item.foreignTable),
-          referencedColumns: item.foreignColumns.map(c => cleanIdentifier(c)),
+          constraintName: constraint.constraintName ? cleanIdentifier(constraint.constraintName) : null,
+          columns: constraint.localColumns.map(c => cleanIdentifier(c)),
+          referencedTable: cleanIdentifier(constraint.foreignTable),
+          referencedColumns: constraint.foreignColumns.map(c => cleanIdentifier(c)),
         });
       }
     }
