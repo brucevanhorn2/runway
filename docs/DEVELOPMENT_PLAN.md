@@ -72,7 +72,7 @@
 ## Technical Decisions
 
 ### DDL Parsing Approach
-Using regex-based parsing for the constrained DDL subset (tables, types, sequences only). Handles CREATE TABLE, CREATE TYPE AS ENUM, CREATE SEQUENCE, and ALTER TABLE ADD CONSTRAINT.
+**Updated 2026-01-20:** Using `pgsql-ast-parser` for robust AST-based parsing. Handles all PostgreSQL DDL syntax including nested parentheses, CHECK constraints, DEFAULT functions, and quoted identifiers. Previously used regex-based parsing but encountered multiple edge cases with complex DDL.
 
 ### Diagramming Library
 React Flow - MIT licensed, well-maintained, good for interactive node graphs. Custom TableNode component for displaying columns with PK/FK indicators.
