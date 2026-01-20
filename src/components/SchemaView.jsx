@@ -15,6 +15,7 @@ import dagre from 'dagre';
 import { useSchema } from '../contexts/SchemaContext';
 import { useSelection } from '../contexts/SelectionContext';
 import { useProjectSettings } from '../contexts/ProjectSettingsContext';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import TableNode from './TableNode';
 import TypeNode from './TypeNode';
 import DiagramToolbar from './DiagramToolbar';
@@ -120,20 +121,31 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
   const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
+  const { preferences } = useUserPreferences();
   const { fitView, setCenter, getNodes } = useReactFlow();
   const nodePositionsRef = useRef({});
   const prevSelectedTableRef = useRef(null);
   const isInitialLayoutRef = useRef(true);
+  const prefsInitializedRef = useRef(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-  // Diagram enhancement state
+  // Diagram enhancement state - initialize from preferences
   const [collapsedNodes, setCollapsedNodes] = useState({});
   const [filterQuery, setFilterQuery] = useState('');
-  const [layoutDirection, setLayoutDirection] = useState('LR');
-  const [showMinimap, setShowMinimap] = useState(true);
+  const [layoutDirection, setLayoutDirection] = useState(preferences.diagram.defaultLayout);
+  const [showMinimap, setShowMinimap] = useState(preferences.diagram.showMinimap);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, node }
+
+  // Update state when preferences change (only on initial load)
+  useEffect(() => {
+    if (!prefsInitializedRef.current && preferences) {
+      setLayoutDirection(preferences.diagram.defaultLayout);
+      setShowMinimap(preferences.diagram.showMinimap);
+      prefsInitializedRef.current = true;
+    }
+  }, [preferences]);
 
   // Toggle collapse for a specific node
   const handleToggleCollapse = useCallback((nodeId) => {
@@ -171,18 +183,22 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
 
       // Add edges for foreign keys
       table.foreignKeys.forEach((fk, fkIndex) => {
+        const edgeLabel = preferences.diagram.showEdgeLabels
+          ? (fk.constraintName || fk.columns.join(', '))
+          : undefined;
+
         schemaEdges.push({
           id: `${table.name}-${fk.referencedTable}-${fkIndex}`,
           source: table.name,
           target: fk.referencedTable,
           type: 'smoothstep',
-          animated: false,
+          animated: preferences.diagram.animateEdges,
           style: { stroke: '#6997d5', strokeWidth: 2 },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: '#6997d5',
           },
-          label: fk.constraintName || fk.columns.join(', '),
+          label: edgeLabel,
           labelStyle: { fill: '#888', fontSize: 10 },
           labelBgStyle: { fill: '#1e1e1e', fillOpacity: 0.8 },
         });
@@ -206,7 +222,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
     });
 
     return { schemaNodes, schemaEdges };
-  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse]);
+  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences]);
 
   // Apply layout when schema changes
   useEffect(() => {

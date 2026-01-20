@@ -52,6 +52,13 @@
 - [x] Different layout directions (LR, TB, RL, BT via toolbar dropdown)
 - [x] Reset layout button (re-run auto-layout)
 
+### User Preferences (Cmd+,)
+- [x] User preferences dialog with tabbed UI (Editor, Diagram, General)
+- [x] Editor settings: font size, tab size, word wrap, minimap, format on save
+- [x] Diagram settings: default layout direction, show minimap, show edge labels, animate edges
+- [x] General settings: auto-open last folder, confirm before close
+- [x] Preferences stored in user data directory (applies to all projects)
+
 ---
 
 ## Planned Features
@@ -65,9 +72,6 @@
 
 ### Diagram Enhancements (Remaining)
 - [ ] Group tables by folder or naming prefix
-
-### Persistence & Settings
-- [ ] User preferences dialog
 
 ### Schema Diffing (Future)
 - [ ] Compare current schema to a git revision

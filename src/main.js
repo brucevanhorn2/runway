@@ -61,6 +61,43 @@ function addRecentFolder(folderPath) {
   createMenu();
 }
 
+// ============================================================================
+// USER PREFERENCES MANAGEMENT
+// ============================================================================
+
+let userPreferences = null;
+
+function getUserPreferencesPath() {
+  return path.join(app.getPath('userData'), 'preferences.json');
+}
+
+function loadUserPreferences() {
+  try {
+    const prefsPath = getUserPreferencesPath();
+    if (fsSync.existsSync(prefsPath)) {
+      const data = fsSync.readFileSync(prefsPath, 'utf-8');
+      userPreferences = JSON.parse(data);
+      console.log('[Main] User preferences loaded');
+      return userPreferences;
+    }
+  } catch (error) {
+    console.error('[Main] Failed to load user preferences:', error);
+  }
+  return null;
+}
+
+async function saveUserPreferences(prefs) {
+  try {
+    userPreferences = prefs;
+    const prefsPath = getUserPreferencesPath();
+    await fs.writeFile(prefsPath, JSON.stringify(prefs, null, 2), 'utf-8');
+    console.log('[Main] User preferences saved');
+  } catch (error) {
+    console.error('[Main] Failed to save user preferences:', error);
+    throw error;
+  }
+}
+
 const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -103,6 +140,14 @@ const createMenu = () => {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Preferences...',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => {
+            mainWindow.webContents.send('open-preferences');
+          },
+        },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -237,6 +282,17 @@ const createMenu = () => {
         { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
         { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
         { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
+        // On non-Mac, add Preferences here
+        ...(!isMac ? [
+          { type: 'separator' },
+          {
+            label: 'Preferences...',
+            accelerator: 'CmdOrCtrl+,',
+            click: () => {
+              mainWindow.webContents.send('open-preferences');
+            },
+          },
+        ] : []),
       ],
     },
     {
@@ -831,6 +887,16 @@ const setupIPC = () => {
       console.error('[Main] Find usages error:', error);
       return { success: false, error: error.message };
     }
+  });
+
+  // User preferences
+  ipcMain.handle('preferences:load', async () => {
+    return loadUserPreferences();
+  });
+
+  ipcMain.handle('preferences:save', async (event, prefs) => {
+    await saveUserPreferences(prefs);
+    return { success: true };
   });
 
   console.log('[Main] IPC handlers registered');

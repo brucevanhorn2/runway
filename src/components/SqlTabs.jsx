@@ -4,6 +4,7 @@ import { CloseOutlined } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
 import { useEditor } from '../contexts/EditorContext';
 import { useSchema } from '../contexts/SchemaContext';
+import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import MarkdownPreview from './MarkdownPreview';
 
 // Track editor instances and their decorations
@@ -273,6 +274,7 @@ function SqlTabs() {
   } = useEditor();
 
   const { schema } = useSchema();
+  const { preferences } = useUserPreferences();
   const monacoRef = useRef(null);
   const schemaRef = useRef(schema);
 
@@ -542,15 +544,15 @@ function SqlTabs() {
             });
           }}
           options={{
-            minimap: { enabled: false },
-            fontSize: 13,
+            minimap: { enabled: preferences.editor.showMinimap },
+            fontSize: preferences.editor.fontSize,
             lineNumbers: 'on',
             glyphMargin: true,
             scrollBeyondLastLine: false,
-            wordWrap: 'on',
+            wordWrap: preferences.editor.wordWrap,
             automaticLayout: true,
             readOnly: false,
-            tabSize: 2,
+            tabSize: preferences.editor.tabSize,
           }}
         />
       ),

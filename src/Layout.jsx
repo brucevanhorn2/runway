@@ -7,6 +7,7 @@ import SqlTabs from './components/SqlTabs';
 import SearchPanel from './components/SearchPanel';
 import FindUsagesPanel from './components/FindUsagesPanel';
 import Breadcrumb from './components/Breadcrumb';
+import PreferencesDialog from './components/PreferencesDialog';
 import './Layout.css';
 
 // Import context providers
@@ -14,6 +15,7 @@ import { SchemaProvider, useSchema } from './contexts/SchemaContext';
 import { EditorProvider, useEditor } from './contexts/EditorContext';
 import { SelectionProvider, useSelection } from './contexts/SelectionContext';
 import { ProjectSettingsProvider, useProjectSettings } from './contexts/ProjectSettingsContext';
+import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 
 // Import parser
 import { parseAllFiles } from './parser';
@@ -31,6 +33,7 @@ function LayoutInner() {
   const [showSearch, setShowSearch] = useState(false);
   const [showFindUsages, setShowFindUsages] = useState(false);
   const [findUsagesTable, setFindUsagesTable] = useState(null);
+  const [showPreferences, setShowPreferences] = useState(false);
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile } = useEditor();
@@ -233,6 +236,16 @@ function LayoutInner() {
     }
   }, []);
 
+  // Handle open preferences
+  const handleOpenPreferences = useCallback(() => {
+    setShowPreferences(true);
+  }, []);
+
+  // Handle close preferences
+  const handleClosePreferences = useCallback(() => {
+    setShowPreferences(false);
+  }, []);
+
   useEffect(() => {
     if (window.electron) {
       window.electron.onFolderOpened(handleFolderOpened);
@@ -245,8 +258,9 @@ function LayoutInner() {
       window.electron.onToggleSearch(handleToggleSearch);
       window.electron.onFindUsages(handleFindUsages);
       window.electron.onGoToDefinition(handleGoToDefinition);
+      window.electron.onOpenPreferences(handleOpenPreferences);
     }
-  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>
@@ -413,21 +427,29 @@ function LayoutInner() {
           </Splitter>
         </div>
       </Content>
+
+      {/* Preferences Dialog */}
+      <PreferencesDialog
+        open={showPreferences}
+        onClose={handleClosePreferences}
+      />
     </AntLayout>
   );
 }
 
 function Layout() {
   return (
-    <ProjectSettingsProvider>
-      <SchemaProvider>
-        <EditorProvider>
-          <SelectionProvider>
-            <LayoutInner />
-          </SelectionProvider>
-        </EditorProvider>
-      </SchemaProvider>
-    </ProjectSettingsProvider>
+    <UserPreferencesProvider>
+      <ProjectSettingsProvider>
+        <SchemaProvider>
+          <EditorProvider>
+            <SelectionProvider>
+              <LayoutInner />
+            </SelectionProvider>
+          </EditorProvider>
+        </SchemaProvider>
+      </ProjectSettingsProvider>
+    </UserPreferencesProvider>
   );
 }
 

@@ -102,4 +102,15 @@ contextBridge.exposeInMainWorld('electron', {
   onGoToDefinition: (callback) => {
     ipcRenderer.on('go-to-definition', callback);
   },
+
+  // ============================================================================
+  // USER PREFERENCES
+  // ============================================================================
+  loadUserPreferences: () => ipcRenderer.invoke('preferences:load'),
+
+  saveUserPreferences: (prefs) => ipcRenderer.invoke('preferences:save', prefs),
+
+  onOpenPreferences: (callback) => {
+    ipcRenderer.on('open-preferences', callback);
+  },
 });
