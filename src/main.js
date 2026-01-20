@@ -6,6 +6,9 @@ const chokidar = require('chokidar');
 
 const isDev = process.env.NODE_ENV === 'development';
 
+// Set app name for macOS menu bar (fixes "Electron" showing in dev mode)
+app.name = 'Runway';
+
 let mainWindow;
 let fileWatcher = null;
 let currentFolderPath = null;
