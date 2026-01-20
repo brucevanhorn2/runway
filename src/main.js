@@ -62,6 +62,8 @@ function addRecentFolder(folderPath) {
   // Save and rebuild menu
   saveSettings();
   createMenu();
+  // Update menu item states after rebuilding
+  updateMenuState();
 }
 
 // ============================================================================
