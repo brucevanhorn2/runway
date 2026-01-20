@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { TableOutlined, UnorderedListOutlined, FileOutlined, FolderOutlined } from '@ant-design/icons';
+import { TableOutlined, UnorderedListOutlined, FileOutlined, FolderOutlined, FileMarkdownOutlined } from '@ant-design/icons';
 
 // File type styling configuration
 const FILE_TYPE_CONFIG = {
@@ -10,6 +10,10 @@ const FILE_TYPE_CONFIG = {
   enum: {
     icon: UnorderedListOutlined,
     color: '#d2a8ff',  // Purple for enums
+  },
+  markdown: {
+    icon: FileMarkdownOutlined,
+    color: '#e6db74',  // Yellow/gold for markdown - prominent!
   },
   other: {
     icon: FileOutlined,

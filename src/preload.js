@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electron', {
     });
   },
 
+  onFileCreated: (callback) => {
+    ipcRenderer.on('file-created', (event, data) => {
+      callback(data);
+    });
+  },
+
   // ============================================================================
   // FILE OPERATIONS
   // ============================================================================
@@ -48,9 +54,21 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('export-plantuml', callback);
   },
 
+  onExportMarkdownDocs: (callback) => {
+    ipcRenderer.on('export-markdown-docs', callback);
+  },
+
+  onExportDataDictionary: (callback) => {
+    ipcRenderer.on('export-data-dictionary', callback);
+  },
+
   saveSvg: (svgContent) => ipcRenderer.invoke('export:save-svg', svgContent),
 
   savePlantuml: (plantumlContent) => ipcRenderer.invoke('export:save-plantuml', plantumlContent),
+
+  saveMarkdownDocs: (markdownContent) => ipcRenderer.invoke('export:save-markdown-docs', markdownContent),
+
+  saveDataDictionary: (dictContent) => ipcRenderer.invoke('export:save-data-dictionary', dictContent),
 
   // ============================================================================
   // VIEW OPERATIONS

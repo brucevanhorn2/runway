@@ -14,6 +14,9 @@ import { SelectionProvider, useSelection } from './contexts/SelectionContext';
 // Import parser
 import { parseAllFiles } from './parser';
 
+// Import documentation generator
+import { generateMarkdownDocs, generateDataDictionary } from './utils/docGenerator';
+
 const { Header, Content } = AntLayout;
 
 function LayoutInner() {
@@ -54,8 +57,71 @@ function LayoutInner() {
     parseSchema(data.path);
   }, [clearSchema, parseSchema]);
 
-  // Handle file changes
+  // Handle file changes - update file type in tree and re-parse schema
   const handleFileChanged = useCallback((data) => {
+    // Update the file's type in the file tree
+    setSqlFiles(prevFiles => prevFiles.map(file =>
+      file.path === data.path
+        ? { ...file, fileType: data.fileType }
+        : file
+    ));
+
+    // Re-parse schema to update diagram
+    if (openFolderPath) {
+      parseSchema(openFolderPath);
+    }
+  }, [openFolderPath, parseSchema]);
+
+  // Handle new file added (from file watcher)
+  const handleFileAdded = useCallback((data) => {
+    // Add new file to the tree
+    setSqlFiles(prevFiles => {
+      // Check if file already exists
+      if (prevFiles.some(f => f.path === data.path)) {
+        return prevFiles;
+      }
+      // Add and sort by relativePath
+      const newFiles = [...prevFiles, {
+        path: data.path,
+        relativePath: data.relativePath || data.path,
+        name: data.name || data.path.split('/').pop(),
+        fileType: data.fileType || 'other',
+      }];
+      return newFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    });
+
+    // Re-parse schema
+    if (openFolderPath) {
+      parseSchema(openFolderPath);
+    }
+  }, [openFolderPath, parseSchema]);
+
+  // Handle file created (from New File menu)
+  const handleFileCreated = useCallback((data) => {
+    // Add to file tree if within current folder
+    if (!data.outsideFolder) {
+      setSqlFiles(prevFiles => {
+        const newFiles = [...prevFiles, {
+          path: data.path,
+          relativePath: data.relativePath,
+          name: data.name,
+          fileType: data.fileType,
+        }];
+        return newFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+      });
+    }
+
+    // Open the file in editor
+    openFile(data.path, data.name);
+    setHighlightedFile(data.path);
+  }, [openFile]);
+
+  // Handle file removed
+  const handleFileRemoved = useCallback((data) => {
+    // Remove from file tree
+    setSqlFiles(prevFiles => prevFiles.filter(f => f.path !== data.path));
+
+    // Re-parse schema
     if (openFolderPath) {
       parseSchema(openFolderPath);
     }
@@ -87,14 +153,32 @@ function LayoutInner() {
     }
   }, [sqlFiles, openFile]);
 
+  // Handle documentation exports
+  const handleExportMarkdownDocs = useCallback(async () => {
+    if (!window.electron) return;
+    const markdown = generateMarkdownDocs(schema, {
+      title: openFolderPath ? openFolderPath.split('/').pop() + ' Schema' : 'Database Schema',
+    });
+    await window.electron.saveMarkdownDocs(markdown);
+  }, [schema, openFolderPath]);
+
+  const handleExportDataDictionary = useCallback(async () => {
+    if (!window.electron) return;
+    const dictionary = generateDataDictionary(schema);
+    await window.electron.saveDataDictionary(dictionary);
+  }, [schema]);
+
   useEffect(() => {
     if (window.electron) {
       window.electron.onFolderOpened(handleFolderOpened);
       window.electron.onFileChanged(handleFileChanged);
-      window.electron.onFileAdded(handleFileChanged);
-      window.electron.onFileRemoved(handleFileChanged);
+      window.electron.onFileAdded(handleFileAdded);
+      window.electron.onFileRemoved(handleFileRemoved);
+      window.electron.onFileCreated(handleFileCreated);
+      window.electron.onExportMarkdownDocs(handleExportMarkdownDocs);
+      window.electron.onExportDataDictionary(handleExportDataDictionary);
     }
-  }, [handleFolderOpened, handleFileChanged]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>

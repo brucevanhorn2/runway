@@ -1,12 +1,65 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const chokidar = require('chokidar');
 
 const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow;
 let fileWatcher = null;
+let currentFolderPath = null;
+
+// ============================================================================
+// SETTINGS MANAGEMENT
+// ============================================================================
+
+const MAX_RECENT_FOLDERS = 10;
+let settings = {
+  lastOpenedFolder: null,
+  recentFolders: [],
+};
+
+function getSettingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function loadSettings() {
+  try {
+    const settingsPath = getSettingsPath();
+    if (fsSync.existsSync(settingsPath)) {
+      const data = fsSync.readFileSync(settingsPath, 'utf-8');
+      settings = { ...settings, ...JSON.parse(data) };
+      console.log('[Main] Settings loaded:', settingsPath);
+    }
+  } catch (error) {
+    console.error('[Main] Failed to load settings:', error);
+  }
+}
+
+async function saveSettings() {
+  try {
+    const settingsPath = getSettingsPath();
+    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    console.log('[Main] Settings saved');
+  } catch (error) {
+    console.error('[Main] Failed to save settings:', error);
+  }
+}
+
+function addRecentFolder(folderPath) {
+  // Remove if already exists
+  settings.recentFolders = settings.recentFolders.filter(f => f !== folderPath);
+  // Add to front
+  settings.recentFolders.unshift(folderPath);
+  // Limit size
+  settings.recentFolders = settings.recentFolders.slice(0, MAX_RECENT_FOLDERS);
+  // Update last opened
+  settings.lastOpenedFolder = folderPath;
+  // Save and rebuild menu
+  saveSettings();
+  createMenu();
+}
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -64,6 +117,13 @@ const createMenu = () => {
       label: 'File',
       submenu: [
         {
+          label: 'New SQL Project',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: async () => {
+            await createNewProject();
+          },
+        },
+        {
           label: 'Open Folder',
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
@@ -78,20 +138,80 @@ const createMenu = () => {
           },
         },
         {
+          label: 'Recent Folders',
+          submenu: settings.recentFolders.length > 0
+            ? [
+                ...settings.recentFolders.map((folderPath, index) => ({
+                  label: `${index + 1}. ${folderPath.split(/[/\\]/).pop()}`,
+                  sublabel: folderPath,
+                  click: async () => {
+                    await openFolder(folderPath);
+                  },
+                })),
+                { type: 'separator' },
+                {
+                  label: 'Clear Recent Folders',
+                  click: async () => {
+                    settings.recentFolders = [];
+                    await saveSettings();
+                    createMenu();
+                  },
+                },
+              ]
+            : [{ label: 'No Recent Folders', enabled: false }],
+        },
+        {
           type: 'separator',
         },
         {
+          id: 'new-sql-file',
+          label: 'New SQL File',
+          accelerator: 'CmdOrCtrl+N',
+          enabled: false,
+          click: async () => {
+            await createNewFile();
+          },
+        },
+        {
+          type: 'separator',
+        },
+        {
+          id: 'export-svg',
           label: 'Export as SVG',
           accelerator: 'CmdOrCtrl+Shift+S',
+          enabled: false,
           click: () => {
             mainWindow.webContents.send('export-svg');
           },
         },
         {
+          id: 'export-plantuml',
           label: 'Export as PlantUML',
           accelerator: 'CmdOrCtrl+Shift+P',
+          enabled: false,
           click: () => {
             mainWindow.webContents.send('export-plantuml');
+          },
+        },
+        {
+          type: 'separator',
+        },
+        {
+          id: 'export-markdown-docs',
+          label: 'Export Documentation (Markdown)',
+          accelerator: 'CmdOrCtrl+Shift+D',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('export-markdown-docs');
+          },
+        },
+        {
+          id: 'export-data-dictionary',
+          label: 'Export Data Dictionary',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('export-data-dictionary');
           },
         },
         ...(!isMac ? [
@@ -153,6 +273,59 @@ const createMenu = () => {
 };
 
 /**
+ * Update menu item enabled states based on whether a folder is open
+ */
+function updateMenuState() {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+
+  const hasFolderOpen = currentFolderPath !== null;
+
+  const newFileItem = menu.getMenuItemById('new-sql-file');
+  const exportSvgItem = menu.getMenuItemById('export-svg');
+  const exportPlantumlItem = menu.getMenuItemById('export-plantuml');
+  const exportMarkdownDocsItem = menu.getMenuItemById('export-markdown-docs');
+  const exportDataDictItem = menu.getMenuItemById('export-data-dictionary');
+
+  if (newFileItem) newFileItem.enabled = hasFolderOpen;
+  if (exportSvgItem) exportSvgItem.enabled = hasFolderOpen;
+  if (exportPlantumlItem) exportPlantumlItem.enabled = hasFolderOpen;
+  if (exportMarkdownDocsItem) exportMarkdownDocsItem.enabled = hasFolderOpen;
+  if (exportDataDictItem) exportDataDictItem.enabled = hasFolderOpen;
+}
+
+/**
+ * Create a new SQL project (folder)
+ */
+async function createNewProject() {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Create New SQL Project',
+      buttonLabel: 'Create Project',
+      properties: ['createDirectory'],
+      nameFieldLabel: 'Project Name',
+    });
+
+    if (result.canceled || !result.filePath) {
+      return;
+    }
+
+    const projectPath = result.filePath;
+
+    // Create the directory
+    await fs.mkdir(projectPath, { recursive: true });
+
+    // Open the new folder
+    await openFolder(projectPath);
+
+    console.log('[Main] New project created:', projectPath);
+  } catch (error) {
+    console.error('[Main] Error creating project:', error);
+    dialog.showErrorBox('Error', `Failed to create project: ${error.message}`);
+  }
+}
+
+/**
  * Open a folder and scan for SQL files
  */
 async function openFolder(folderPath) {
@@ -163,16 +336,25 @@ async function openFolder(folderPath) {
       fileWatcher = null;
     }
 
-    // Scan for SQL files and determine their types
-    const allFiles = await scanSqlFiles(folderPath);
+    // Scan for project files (SQL and Markdown) and determine their types
+    const allFiles = await scanProjectFiles(folderPath);
     const files = [];
     for (const file of allFiles) {
       const content = await fs.readFile(file.path, 'utf-8');
       files.push({
         ...file,
-        fileType: getFileType(content),
+        fileType: getFileType(content, file.path),
       });
     }
+
+    // Track the current folder
+    currentFolderPath = folderPath;
+
+    // Update menu state (enable New SQL File, exports, etc.)
+    updateMenuState();
+
+    // Add to recent folders
+    addRecentFolder(folderPath);
 
     // Send folder data to renderer (all files with their types)
     mainWindow.webContents.send('folder-opened', {
@@ -180,8 +362,11 @@ async function openFolder(folderPath) {
       files: files,
     });
 
-    // Set up file watcher for .sql files
-    fileWatcher = chokidar.watch(path.join(folderPath, '**/*.sql'), {
+    // Set up file watcher for .sql and .md files
+    fileWatcher = chokidar.watch([
+      path.join(folderPath, '**/*.sql'),
+      path.join(folderPath, '**/*.md'),
+    ], {
       persistent: true,
       ignoreInitial: true,
     });
@@ -189,9 +374,12 @@ async function openFolder(folderPath) {
     fileWatcher.on('add', async (filePath) => {
       try {
         const content = await fs.readFile(filePath, 'utf-8');
+        const relativePath = path.relative(folderPath, filePath);
         mainWindow.webContents.send('file-added', {
           path: filePath,
-          fileType: getFileType(content),
+          relativePath: relativePath,
+          name: path.basename(filePath),
+          fileType: getFileType(content, filePath),
         });
       } catch (error) {
         console.error('[Main] Error reading added file:', error);
@@ -199,8 +387,19 @@ async function openFolder(folderPath) {
     });
 
     fileWatcher.on('change', async (filePath) => {
-      // Always notify on change - the renderer will re-parse and filter
-      mainWindow.webContents.send('file-changed', { path: filePath });
+      // Read the file and determine its new type
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        const relativePath = path.relative(folderPath, filePath);
+        mainWindow.webContents.send('file-changed', {
+          path: filePath,
+          relativePath: relativePath,
+          name: path.basename(filePath),
+          fileType: getFileType(content, filePath),
+        });
+      } catch (error) {
+        console.error('[Main] Error reading changed file:', error);
+      }
     });
 
     fileWatcher.on('unlink', (filePath) => {
@@ -215,9 +414,62 @@ async function openFolder(folderPath) {
 }
 
 /**
- * Recursively scan directory for SQL files
+ * Create a new SQL file
  */
-async function scanSqlFiles(dirPath, basePath = dirPath) {
+async function createNewFile() {
+  try {
+    // Show save dialog
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Create New SQL File',
+      defaultPath: currentFolderPath
+        ? path.join(currentFolderPath, 'new_table.sql')
+        : 'new_table.sql',
+      filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return;
+    }
+
+    const filePath = result.filePath;
+
+    // Create empty file with a helpful comment
+    const initialContent = '-- New SQL file\n-- Add your CREATE TABLE or CREATE TYPE statement here\n\n';
+    await fs.writeFile(filePath, initialContent, 'utf-8');
+
+    // If the file is within the current folder, add it to the file tree
+    if (currentFolderPath && filePath.startsWith(currentFolderPath)) {
+      const relativePath = path.relative(currentFolderPath, filePath);
+      const fileType = getFileType(initialContent, filePath);
+
+      mainWindow.webContents.send('file-created', {
+        path: filePath,
+        relativePath: relativePath,
+        name: path.basename(filePath),
+        fileType: fileType,
+      });
+    } else {
+      // File created outside current folder - just notify to open it
+      mainWindow.webContents.send('file-created', {
+        path: filePath,
+        relativePath: path.basename(filePath),
+        name: path.basename(filePath),
+        fileType: 'other',
+        outsideFolder: true,
+      });
+    }
+
+    console.log('[Main] New file created:', filePath);
+  } catch (error) {
+    console.error('[Main] Error creating file:', error);
+    dialog.showErrorBox('Error', `Failed to create file: ${error.message}`);
+  }
+}
+
+/**
+ * Recursively scan directory for project files (SQL and Markdown)
+ */
+async function scanProjectFiles(dirPath, basePath = dirPath) {
   const files = [];
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
@@ -228,10 +480,10 @@ async function scanSqlFiles(dirPath, basePath = dirPath) {
     if (entry.isDirectory()) {
       // Skip hidden directories and node_modules
       if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
-        const subFiles = await scanSqlFiles(fullPath, basePath);
+        const subFiles = await scanProjectFiles(fullPath, basePath);
         files.push(...subFiles);
       }
-    } else if (entry.isFile() && entry.name.endsWith('.sql')) {
+    } else if (entry.isFile() && (entry.name.endsWith('.sql') || entry.name.endsWith('.md'))) {
       files.push({
         name: entry.name,
         path: fullPath,
@@ -241,6 +493,12 @@ async function scanSqlFiles(dirPath, basePath = dirPath) {
   }
 
   return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+// Keep for backwards compatibility with folder:read-all
+async function scanSqlFiles(dirPath, basePath = dirPath) {
+  const files = await scanProjectFiles(dirPath, basePath);
+  return files.filter(f => f.name.endsWith('.sql'));
 }
 
 /**
@@ -253,10 +511,15 @@ function containsDiagramDDL(content) {
 }
 
 /**
- * Determine the type of DDL content in a SQL file
- * Returns: 'table', 'enum', or 'other'
+ * Determine the type of file content
+ * Returns: 'table', 'enum', 'markdown', or 'other'
  */
-function getFileType(content) {
+function getFileType(content, filePath = '') {
+  // Check for markdown files by extension
+  if (filePath && filePath.endsWith('.md')) {
+    return 'markdown';
+  }
+
   // Remove comments to avoid false positives
   const cleanContent = content
     .replace(/--.*$/gm, '')
@@ -365,12 +628,68 @@ const setupIPC = () => {
     }
   });
 
+  // Save Markdown Documentation export
+  ipcMain.handle('export:save-markdown-docs', async (event, markdownContent) => {
+    try {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export Documentation',
+        defaultPath: 'SCHEMA.md',
+        filters: [{ name: 'Markdown Files', extensions: ['md'] }],
+      });
+
+      if (!result.canceled && result.filePath) {
+        await fs.writeFile(result.filePath, markdownContent, 'utf-8');
+        return { success: true, path: result.filePath };
+      }
+      return { success: false, canceled: true };
+    } catch (error) {
+      console.error('[Main] Failed to export Markdown docs:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Save Data Dictionary export
+  ipcMain.handle('export:save-data-dictionary', async (event, dictContent) => {
+    try {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export Data Dictionary',
+        defaultPath: 'DATA_DICTIONARY.md',
+        filters: [{ name: 'Markdown Files', extensions: ['md'] }],
+      });
+
+      if (!result.canceled && result.filePath) {
+        await fs.writeFile(result.filePath, dictContent, 'utf-8');
+        return { success: true, path: result.filePath };
+      }
+      return { success: false, canceled: true };
+    } catch (error) {
+      console.error('[Main] Failed to export Data Dictionary:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   console.log('[Main] IPC handlers registered');
 };
 
 app.on('ready', () => {
+  // Load settings before creating window (so menu has recent folders)
+  loadSettings();
   setupIPC();
   createWindow();
+
+  // Auto-open last folder once window is ready
+  mainWindow.webContents.on('did-finish-load', async () => {
+    if (settings.lastOpenedFolder) {
+      try {
+        // Verify the folder still exists
+        await fs.access(settings.lastOpenedFolder);
+        await openFolder(settings.lastOpenedFolder);
+        console.log('[Main] Auto-opened last folder:', settings.lastOpenedFolder);
+      } catch (error) {
+        console.log('[Main] Last folder no longer exists:', settings.lastOpenedFolder);
+      }
+    }
+  });
 });
 
 app.on('window-all-closed', () => {

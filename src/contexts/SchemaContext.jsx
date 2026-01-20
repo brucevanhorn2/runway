@@ -7,6 +7,10 @@ export function SchemaProvider({ children }) {
     tables: [],
     types: [],
     sequences: [],
+    comments: {
+      tables: {},
+      columns: {},
+    },
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -25,6 +29,10 @@ export function SchemaProvider({ children }) {
       tables: [],
       types: [],
       sequences: [],
+      comments: {
+        tables: {},
+        columns: {},
+      },
     });
     setError(null);
   }, []);

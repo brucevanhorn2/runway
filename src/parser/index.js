@@ -1,8 +1,8 @@
 /**
  * DDL Parser for PostgreSQL
  *
- * Parses CREATE TABLE, CREATE TYPE (enum), and CREATE SEQUENCE statements.
- * Returns a schema object with tables, types, and sequences.
+ * Parses CREATE TABLE, CREATE TYPE (enum), CREATE SEQUENCE, and COMMENT ON statements.
+ * Returns a schema object with tables, types, sequences, and comments.
  */
 
 /**
@@ -15,6 +15,10 @@ export function parseAllFiles(files) {
     tables: [],
     types: [],
     sequences: [],
+    comments: {
+      tables: {},    // { tableName: 'comment' }
+      columns: {},   // { 'tableName.columnName': 'comment' }
+    },
   };
 
   for (const file of files) {
@@ -23,6 +27,10 @@ export function parseAllFiles(files) {
       schema.tables.push(...fileSchema.tables);
       schema.types.push(...fileSchema.types);
       schema.sequences.push(...fileSchema.sequences);
+
+      // Merge comments
+      Object.assign(schema.comments.tables, fileSchema.comments.tables);
+      Object.assign(schema.comments.columns, fileSchema.comments.columns);
     } catch (error) {
       console.error(`Error parsing ${file.path}:`, error);
     }
@@ -30,6 +38,9 @@ export function parseAllFiles(files) {
 
   // Resolve foreign key references
   resolveForeignKeys(schema);
+
+  // Apply comments to tables and columns
+  applyComments(schema);
 
   return schema;
 }
@@ -45,9 +56,16 @@ export function parseDDL(content, sourceFile = '') {
     tables: [],
     types: [],
     sequences: [],
+    comments: {
+      tables: {},
+      columns: {},
+    },
   };
 
-  // Remove comments
+  // Parse COMMENT ON statements BEFORE removing comments (they use SQL string literals)
+  parseCommentStatements(content, schema.comments);
+
+  // Remove SQL comments for DDL parsing
   const cleanContent = removeComments(content);
 
   // Parse CREATE TYPE statements (enums)
@@ -401,6 +419,65 @@ function normalizeDataType(dataType) {
     .replace(/INTEGER/i, 'INT')
     .replace(/BOOLEAN/i, 'BOOL')
     .trim();
+}
+
+/**
+ * Parse COMMENT ON TABLE and COMMENT ON COLUMN statements
+ * PostgreSQL syntax:
+ *   COMMENT ON TABLE table_name IS 'description';
+ *   COMMENT ON COLUMN table_name.column_name IS 'description';
+ */
+function parseCommentStatements(content, comments) {
+  // Match COMMENT ON TABLE
+  const tableCommentRegex = /COMMENT\s+ON\s+TABLE\s+(["\w.]+)\s+IS\s+(?:'([^']*(?:''[^']*)*)'|E'([^']*(?:\\'[^']*)*)')\s*;/gi;
+
+  let match;
+  while ((match = tableCommentRegex.exec(content)) !== null) {
+    const tableName = cleanIdentifier(match[1]);
+    // Handle both regular strings and escape strings (E'...')
+    let commentText = match[2] !== undefined ? match[2] : match[3];
+    // Unescape doubled single quotes and backslash escapes
+    commentText = commentText.replace(/''/g, "'").replace(/\\'/g, "'");
+    comments.tables[tableName] = commentText;
+  }
+
+  // Match COMMENT ON COLUMN
+  const columnCommentRegex = /COMMENT\s+ON\s+COLUMN\s+(["\w.]+)\.(["\w]+)\s+IS\s+(?:'([^']*(?:''[^']*)*)'|E'([^']*(?:\\'[^']*)*)')\s*;/gi;
+
+  while ((match = columnCommentRegex.exec(content)) !== null) {
+    const tableName = cleanIdentifier(match[1]);
+    const columnName = cleanIdentifier(match[2]);
+    let commentText = match[3] !== undefined ? match[3] : match[4];
+    commentText = commentText.replace(/''/g, "'").replace(/\\'/g, "'");
+    comments.columns[`${tableName}.${columnName}`] = commentText;
+  }
+}
+
+/**
+ * Apply parsed comments to tables and columns in the schema
+ */
+function applyComments(schema) {
+  for (const table of schema.tables) {
+    // Apply table comment
+    if (schema.comments.tables[table.name]) {
+      table.comment = schema.comments.tables[table.name];
+    }
+
+    // Apply column comments
+    for (const column of table.columns) {
+      const key = `${table.name}.${column.name}`;
+      if (schema.comments.columns[key]) {
+        column.comment = schema.comments.columns[key];
+      }
+    }
+  }
+
+  // Apply comments to enum types as well
+  for (const type of schema.types) {
+    if (schema.comments.tables[type.name]) {
+      type.comment = schema.comments.tables[type.name];
+    }
+  }
 }
 
 export default { parseAllFiles, parseDDL };
