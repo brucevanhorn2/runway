@@ -405,6 +405,7 @@ function LayoutInner() {
                     onTableSelect={handleTableSelect}
                     onGoToDefinition={handleGoToDefinitionForTable}
                     onFindUsages={handleFindUsagesForTable}
+                    projectRoot={openFolderPath}
                   />
                 </div>
               </Splitter.Pane>

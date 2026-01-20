@@ -18,6 +18,7 @@ import { useProjectSettings } from '../contexts/ProjectSettingsContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import TableNode from './TableNode';
 import TypeNode from './TypeNode';
+import GroupNode from './GroupNode';
 import DiagramToolbar from './DiagramToolbar';
 import NodeContextMenu from './NodeContextMenu';
 import { generatePlantUML, generateSVGFromSchema } from '../services/ExportService';
@@ -26,7 +27,12 @@ import { generatePlantUML, generateSVGFromSchema } from '../services/ExportServi
 const nodeTypes = {
   table: TableNode,
   type: TypeNode,
+  group: GroupNode,
 };
+
+// Group layout constants
+const GROUP_PADDING = 40;
+const GROUP_HEADER_HEIGHT = 24;
 
 // Layout constants
 const NODE_WIDTH = 220;
@@ -47,6 +53,175 @@ function calculateNodeHeight(table) {
  */
 function calculateTypeHeight(type) {
   return HEADER_HEIGHT + (type.values.length * ROW_HEIGHT) + NODE_PADDING;
+}
+
+/**
+ * Extract folder path from source file (relative to project root)
+ * Returns the folder name or '(root)' for files in the root
+ */
+function getFolderFromSourceFile(sourceFile, projectRoot) {
+  if (!sourceFile) return '(root)';
+
+  // Get relative path from project root
+  let relativePath = sourceFile;
+  if (projectRoot && sourceFile.startsWith(projectRoot)) {
+    relativePath = sourceFile.substring(projectRoot.length + 1);
+  }
+
+  // Extract folder (everything before the last /)
+  const lastSlash = relativePath.lastIndexOf('/');
+  if (lastSlash === -1) return '(root)';
+
+  return relativePath.substring(0, lastSlash);
+}
+
+/**
+ * Group schema items by folder
+ */
+function groupByFolder(tables, types, projectRoot) {
+  const groups = new Map();
+
+  // Group tables
+  tables.forEach(table => {
+    const folder = getFolderFromSourceFile(table.sourceFile, projectRoot);
+    if (!groups.has(folder)) {
+      groups.set(folder, { tables: [], types: [] });
+    }
+    groups.get(folder).tables.push(table);
+  });
+
+  // Group types
+  types.forEach(type => {
+    const folder = getFolderFromSourceFile(type.sourceFile, projectRoot);
+    if (!groups.has(folder)) {
+      groups.set(folder, { tables: [], types: [] });
+    }
+    groups.get(folder).types.push(type);
+  });
+
+  return groups;
+}
+
+/**
+ * Layout nodes within a group using dagre
+ */
+function layoutGroupContents(tables, types, schema, direction, collapsedNodes) {
+  const nodes = [];
+  const edges = [];
+
+  // Create nodes for tables
+  tables.forEach(table => {
+    nodes.push({
+      id: table.name,
+      type: 'table',
+      position: { x: 0, y: 0 },
+    });
+  });
+
+  // Create nodes for types
+  types.forEach(type => {
+    nodes.push({
+      id: type.name,
+      type: 'type',
+      position: { x: 0, y: 0 },
+    });
+  });
+
+  // Create edges only for relationships within this group
+  const nodeIds = new Set(nodes.map(n => n.id));
+  tables.forEach(table => {
+    table.foreignKeys.forEach((fk, fkIndex) => {
+      if (nodeIds.has(fk.referencedTable)) {
+        edges.push({
+          id: `${table.name}-${fk.referencedTable}-${fkIndex}`,
+          source: table.name,
+          target: fk.referencedTable,
+        });
+      }
+    });
+  });
+
+  if (nodes.length === 0) {
+    return { nodes: [], width: 0, height: 0 };
+  }
+
+  // Create dagre graph for this group
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+  dagreGraph.setGraph({
+    rankdir: direction,
+    nodesep: 40,
+    ranksep: 80,
+    marginx: 10,
+    marginy: 10,
+  });
+
+  // Set node dimensions
+  nodes.forEach(node => {
+    if (node.type === 'type') {
+      const type = schema.types.find(t => t.name === node.id);
+      const height = collapsedNodes[node.id] ? HEADER_HEIGHT : (type ? calculateTypeHeight(type) : 100);
+      dagreGraph.setNode(node.id, { width: TYPE_NODE_WIDTH, height });
+    } else {
+      const table = schema.tables.find(t => t.name === node.id);
+      const height = collapsedNodes[node.id] ? HEADER_HEIGHT : (table ? calculateNodeHeight(table) : 150);
+      dagreGraph.setNode(node.id, { width: NODE_WIDTH, height });
+    }
+  });
+
+  edges.forEach(edge => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  // Get positions and calculate bounds
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  const layoutedNodes = nodes.map(node => {
+    const pos = dagreGraph.node(node.id);
+    let width, height;
+
+    if (node.type === 'type') {
+      const type = schema.types.find(t => t.name === node.id);
+      height = collapsedNodes[node.id] ? HEADER_HEIGHT : (type ? calculateTypeHeight(type) : 100);
+      width = TYPE_NODE_WIDTH;
+    } else {
+      const table = schema.tables.find(t => t.name === node.id);
+      height = collapsedNodes[node.id] ? HEADER_HEIGHT : (table ? calculateNodeHeight(table) : 150);
+      width = NODE_WIDTH;
+    }
+
+    const x = pos.x - width / 2;
+    const y = pos.y - height / 2;
+
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+
+    return {
+      ...node,
+      position: { x, y },
+      width,
+      height,
+    };
+  });
+
+  // Normalize positions to start from 0,0
+  const normalizedNodes = layoutedNodes.map(node => ({
+    ...node,
+    position: {
+      x: node.position.x - minX,
+      y: node.position.y - minY,
+    },
+  }));
+
+  return {
+    nodes: normalizedNodes,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
 }
 
 /**
@@ -117,7 +292,150 @@ function getLayoutedElements(nodes, edges, schema, direction = 'LR', collapsedNo
   return { nodes: layoutedNodes, edges };
 }
 
-function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
+/**
+ * Create grouped layout with folder-based grouping
+ * @param {Object} schema - Parsed schema
+ * @param {string} projectRoot - Project root path for relative paths
+ * @param {string} direction - Layout direction
+ * @param {Object} collapsedNodes - Map of collapsed node IDs
+ * @param {Object} nodeData - Additional data to add to each node
+ * @param {Object} edgeConfig - Edge configuration (animated, showLabels)
+ */
+function getGroupedLayoutElements(schema, projectRoot, direction, collapsedNodes, nodeData, edgeConfig) {
+  const groups = groupByFolder(schema.tables, schema.types, projectRoot);
+  const allNodes = [];
+  const allEdges = [];
+
+  // First, layout each group's contents
+  const groupLayouts = new Map();
+  let colorIndex = 0;
+
+  groups.forEach((group, folderPath) => {
+    const layout = layoutGroupContents(group.tables, group.types, schema, direction, collapsedNodes);
+    groupLayouts.set(folderPath, {
+      ...layout,
+      colorIndex: colorIndex++,
+      tableCount: group.tables.length,
+      typeCount: group.types.length,
+    });
+  });
+
+  // Now layout the groups themselves using dagre
+  const groupGraph = new dagre.graphlib.Graph();
+  groupGraph.setDefaultEdgeLabel(() => ({}));
+  groupGraph.setGraph({
+    rankdir: direction,
+    nodesep: 80,
+    ranksep: 100,
+    marginx: 40,
+    marginy: 40,
+  });
+
+  // Set group node dimensions
+  groupLayouts.forEach((layout, folderPath) => {
+    const width = layout.width + GROUP_PADDING * 2;
+    const height = layout.height + GROUP_PADDING + GROUP_HEADER_HEIGHT;
+    groupGraph.setNode(folderPath, { width, height });
+  });
+
+  // Add edges between groups based on cross-group foreign keys
+  schema.tables.forEach(table => {
+    const sourceFolder = getFolderFromSourceFile(table.sourceFile, projectRoot);
+    table.foreignKeys.forEach(fk => {
+      const targetTable = schema.tables.find(t => t.name === fk.referencedTable);
+      if (targetTable) {
+        const targetFolder = getFolderFromSourceFile(targetTable.sourceFile, projectRoot);
+        if (sourceFolder !== targetFolder) {
+          // Add edge between groups (dagre handles duplicates)
+          groupGraph.setEdge(sourceFolder, targetFolder);
+        }
+      }
+    });
+  });
+
+  dagre.layout(groupGraph);
+
+  // Create final nodes with absolute positions
+  groupLayouts.forEach((layout, folderPath) => {
+    const groupPos = groupGraph.node(folderPath);
+    const groupWidth = layout.width + GROUP_PADDING * 2;
+    const groupHeight = layout.height + GROUP_PADDING + GROUP_HEADER_HEIGHT;
+
+    // Calculate group's top-left position
+    const groupX = groupPos.x - groupWidth / 2;
+    const groupY = groupPos.y - groupHeight / 2;
+
+    // Add group node
+    allNodes.push({
+      id: `group-${folderPath}`,
+      type: 'group',
+      position: { x: groupX, y: groupY },
+      style: {
+        width: groupWidth,
+        height: groupHeight,
+      },
+      data: {
+        label: folderPath,
+        tableCount: layout.tableCount,
+        typeCount: layout.typeCount,
+        colorIndex: layout.colorIndex,
+      },
+      // Groups should be behind other nodes
+      zIndex: -1,
+    });
+
+    // Add child nodes with offset positions
+    layout.nodes.forEach(node => {
+      const table = schema.tables.find(t => t.name === node.id);
+      const type = schema.types.find(t => t.name === node.id);
+
+      allNodes.push({
+        id: node.id,
+        type: node.type,
+        position: {
+          x: groupX + GROUP_PADDING + node.position.x,
+          y: groupY + GROUP_HEADER_HEIGHT + node.position.y,
+        },
+        data: {
+          ...(table ? { table } : {}),
+          ...(type ? { type } : {}),
+          ...nodeData,
+          isCollapsed: collapsedNodes[node.id] || false,
+          folder: folderPath,
+        },
+      });
+    });
+  });
+
+  // Create all edges
+  schema.tables.forEach(table => {
+    table.foreignKeys.forEach((fk, fkIndex) => {
+      const edgeLabel = edgeConfig.showLabels
+        ? (fk.constraintName || fk.columns.join(', '))
+        : undefined;
+
+      allEdges.push({
+        id: `${table.name}-${fk.referencedTable}-${fkIndex}`,
+        source: table.name,
+        target: fk.referencedTable,
+        type: 'smoothstep',
+        animated: edgeConfig.animated,
+        style: { stroke: '#6997d5', strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: '#6997d5',
+        },
+        label: edgeLabel,
+        labelStyle: { fill: '#888', fontSize: 10 },
+        labelBgStyle: { fill: '#1e1e1e', fillOpacity: 0.8 },
+      });
+    });
+  });
+
+  return { nodes: allNodes, edges: allEdges };
+}
+
+function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
   const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
@@ -136,6 +454,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
   const [filterQuery, setFilterQuery] = useState('');
   const [layoutDirection, setLayoutDirection] = useState(preferences.diagram.defaultLayout);
   const [showMinimap, setShowMinimap] = useState(preferences.diagram.showMinimap);
+  const [groupByFolder, setGroupByFolder] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, node }
 
   // Update state when preferences change (only on initial load)
@@ -163,6 +482,43 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
 
   // Convert schema to React Flow nodes and edges
   const { schemaNodes, schemaEdges } = useMemo(() => {
+    // When grouping by folder, use the grouped layout function
+    if (groupByFolder && schema.tables.length > 0) {
+      const nodeData = {
+        isSelected: false,
+        onToggleCollapse: handleToggleCollapse,
+      };
+      const edgeConfig = {
+        animated: preferences.diagram.animateEdges,
+        showLabels: preferences.diagram.showEdgeLabels,
+      };
+
+      const result = getGroupedLayoutElements(
+        schema,
+        projectRoot,
+        layoutDirection,
+        collapsedNodes,
+        nodeData,
+        edgeConfig
+      );
+
+      // Add selection state and filter state to nodes
+      const nodesWithState = result.nodes.map(node => {
+        if (node.type === 'group') return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isSelected: selectedTable === node.id,
+            isFiltered: matchesFilter(node.id),
+          },
+        };
+      });
+
+      return { schemaNodes: nodesWithState, schemaEdges: result.edges };
+    }
+
+    // Standard non-grouped layout
     const schemaNodes = [];
     const schemaEdges = [];
 
@@ -222,37 +578,46 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
     });
 
     return { schemaNodes, schemaEdges };
-  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences]);
+  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences, groupByFolder, projectRoot, layoutDirection]);
 
   // Apply layout when schema changes
   useEffect(() => {
     if (schemaNodes.length > 0 && settingsLoaded) {
-      // Check if we have saved positions for all nodes
-      const savedPositions = settings.nodePositions || {};
-      const allNodesHavePositions = schemaNodes.every(node => savedPositions[node.id]);
-
       let layoutedNodes;
-      if (allNodesHavePositions && Object.keys(savedPositions).length > 0) {
-        // Apply saved positions
-        layoutedNodes = schemaNodes.map(node => ({
-          ...node,
-          position: savedPositions[node.id],
-        }));
-        console.log('[SchemaView] Applied saved positions');
+
+      // When grouping by folder, nodes already have positions from getGroupedLayoutElements
+      if (groupByFolder) {
+        layoutedNodes = schemaNodes;
+        console.log('[SchemaView] Applied grouped layout');
       } else {
-        // Use dagre layout for new/changed schema
-        const result = getLayoutedElements(schemaNodes, schemaEdges, schema, layoutDirection, collapsedNodes);
-        layoutedNodes = result.nodes;
-        console.log('[SchemaView] Applied dagre layout');
+        // Check if we have saved positions for all nodes
+        const savedPositions = settings.nodePositions || {};
+        const allNodesHavePositions = schemaNodes.every(node => savedPositions[node.id]);
+
+        if (allNodesHavePositions && Object.keys(savedPositions).length > 0) {
+          // Apply saved positions
+          layoutedNodes = schemaNodes.map(node => ({
+            ...node,
+            position: savedPositions[node.id],
+          }));
+          console.log('[SchemaView] Applied saved positions');
+        } else {
+          // Use dagre layout for new/changed schema
+          const result = getLayoutedElements(schemaNodes, schemaEdges, schema, layoutDirection, collapsedNodes);
+          layoutedNodes = result.nodes;
+          console.log('[SchemaView] Applied dagre layout');
+        }
       }
 
       setNodes(layoutedNodes);
       setEdges(schemaEdges);
 
-      // Store positions for export
+      // Store positions for export (skip group nodes)
       const positions = {};
       layoutedNodes.forEach(node => {
-        positions[node.id] = node.position;
+        if (node.type !== 'group') {
+          positions[node.id] = node.position;
+        }
       });
       nodePositionsRef.current = positions;
       isInitialLayoutRef.current = false;
@@ -262,7 +627,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
       nodePositionsRef.current = {};
       isInitialLayoutRef.current = true;
     }
-  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded, layoutDirection, collapsedNodes]);
+  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded, layoutDirection, collapsedNodes, groupByFolder]);
 
   // Focus on selected table when selection changes
   useEffect(() => {
@@ -478,6 +843,11 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
     setShowMinimap(prev => !prev);
   }, []);
 
+  // Toolbar: Toggle group by folder
+  const handleToggleGroupByFolder = useCallback(() => {
+    setGroupByFolder(prev => !prev);
+  }, []);
+
   // Toolbar: Collapse/expand all
   const handleToggleAllCollapsed = useCallback(() => {
     const allIds = [...schema.tables.map(t => t.name), ...schema.types.map(t => t.name)];
@@ -541,9 +911,11 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
         onResetLayout={handleResetLayout}
         onToggleMinimap={handleToggleMinimap}
         onToggleCollapsed={handleToggleAllCollapsed}
+        onToggleGroupByFolder={handleToggleGroupByFolder}
         currentLayout={layoutDirection}
         showMinimap={showMinimap}
         allCollapsed={allNodesCollapsed}
+        groupByFolder={groupByFolder}
         tableCount={schema.tables.length}
         typeCount={schema.types.length}
       />
@@ -594,13 +966,14 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
 }
 
 // Wrapper component that provides ReactFlow context
-function SchemaView({ onTableSelect, onGoToDefinition, onFindUsages }) {
+function SchemaView({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot }) {
   return (
     <ReactFlowProvider>
       <SchemaViewInner
         onTableSelect={onTableSelect}
         onGoToDefinition={onGoToDefinition}
         onFindUsages={onFindUsages}
+        projectRoot={projectRoot}
       />
     </ReactFlowProvider>
   );

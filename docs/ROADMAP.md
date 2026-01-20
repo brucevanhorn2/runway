@@ -59,6 +59,14 @@
 - [x] General settings: auto-open last folder, confirm before close
 - [x] Preferences stored in user data directory (applies to all projects)
 
+### Folder/Package Grouping
+- [x] Group tables by folder in diagram (UML package style)
+- [x] Visual group nodes with colored borders and folder icons
+- [x] Toggle button in toolbar to enable/disable grouping
+- [x] Cross-group relationships shown with edges
+- [x] Documentation generation organized by package/folder
+- [x] Data dictionary includes package overview and breakdown
+
 ---
 
 ## Planned Features
@@ -69,9 +77,6 @@
 - [ ] Missing indexes on FK columns warning
 - [ ] Naming convention checker (e.g., FK columns should end with `_id`)
 - [ ] Warning for tables without primary key
-
-### Diagram Enhancements (Remaining)
-- [ ] Group tables by folder or naming prefix
 
 ### Schema Diffing (Future)
 - [ ] Compare current schema to a git revision

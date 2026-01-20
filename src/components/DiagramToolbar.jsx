@@ -10,6 +10,8 @@ import {
   EyeInvisibleOutlined,
   CompressOutlined,
   ExpandOutlined,
+  FolderOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 
 const styles = {
@@ -50,9 +52,11 @@ function DiagramToolbar({
   onResetLayout,
   onToggleMinimap,
   onToggleCollapsed,
+  onToggleGroupByFolder,
   currentLayout = 'LR',
   showMinimap = true,
   allCollapsed = false,
+  groupByFolder = false,
   tableCount = 0,
   typeCount = 0,
 }) {
@@ -133,6 +137,20 @@ function DiagramToolbar({
           icon={<ReloadOutlined />}
           onClick={onResetLayout}
           style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+        />
+      </Tooltip>
+
+      {/* Group by folder toggle */}
+      <Tooltip title={groupByFolder ? 'Ungroup (show flat view)' : 'Group by Folder (UML packages)'}>
+        <Button
+          size="small"
+          icon={groupByFolder ? <FolderOutlined /> : <AppstoreOutlined />}
+          onClick={onToggleGroupByFolder}
+          style={{
+            background: groupByFolder ? '#1e88e5' : '#3c3c3c',
+            border: groupByFolder ? '1px solid #1e88e5' : '1px solid #555',
+            color: groupByFolder ? '#fff' : '#ccc',
+          }}
         />
       </Tooltip>
 
