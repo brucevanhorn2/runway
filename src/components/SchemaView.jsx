@@ -14,6 +14,7 @@ import dagre from 'dagre';
 
 import { useSchema } from '../contexts/SchemaContext';
 import { useSelection } from '../contexts/SelectionContext';
+import { useProjectSettings } from '../contexts/ProjectSettingsContext';
 import TableNode from './TableNode';
 import TypeNode from './TypeNode';
 import { generatePlantUML, generateSVGFromSchema } from '../services/ExportService';
@@ -111,9 +112,11 @@ function getLayoutedElements(nodes, edges, schema) {
 function SchemaViewInner({ onTableSelect }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
+  const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
   const { fitView, setCenter } = useReactFlow();
   const nodePositionsRef = useRef({});
   const prevSelectedTableRef = useRef(null);
+  const isInitialLayoutRef = useRef(true);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -173,14 +176,28 @@ function SchemaViewInner({ onTableSelect }) {
 
   // Apply layout when schema changes
   useEffect(() => {
-    if (schemaNodes.length > 0) {
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-        schemaNodes,
-        schemaEdges,
-        schema
-      );
+    if (schemaNodes.length > 0 && settingsLoaded) {
+      // Check if we have saved positions for all nodes
+      const savedPositions = settings.nodePositions || {};
+      const allNodesHavePositions = schemaNodes.every(node => savedPositions[node.id]);
+
+      let layoutedNodes;
+      if (allNodesHavePositions && Object.keys(savedPositions).length > 0) {
+        // Apply saved positions
+        layoutedNodes = schemaNodes.map(node => ({
+          ...node,
+          position: savedPositions[node.id],
+        }));
+        console.log('[SchemaView] Applied saved positions');
+      } else {
+        // Use dagre layout for new/changed schema
+        const result = getLayoutedElements(schemaNodes, schemaEdges, schema);
+        layoutedNodes = result.nodes;
+        console.log('[SchemaView] Applied dagre layout');
+      }
+
       setNodes(layoutedNodes);
-      setEdges(layoutedEdges);
+      setEdges(schemaEdges);
 
       // Store positions for export
       const positions = {};
@@ -188,12 +205,14 @@ function SchemaViewInner({ onTableSelect }) {
         positions[node.id] = node.position;
       });
       nodePositionsRef.current = positions;
-    } else {
+      isInitialLayoutRef.current = false;
+    } else if (schemaNodes.length === 0) {
       setNodes([]);
       setEdges([]);
       nodePositionsRef.current = {};
+      isInitialLayoutRef.current = true;
     }
-  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges]);
+  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded]);
 
   // Focus on selected table when selection changes
   useEffect(() => {
@@ -257,6 +276,30 @@ function SchemaViewInner({ onTableSelect }) {
     window.electron.onFitDiagram(handleFitDiagram);
   }, [schema, fitView]);
 
+  // Handle node position changes - save when drag ends
+  const handleNodesChange = useCallback((changes) => {
+    onNodesChange(changes);
+
+    // Check if any node positions changed (drag end)
+    const positionChanges = changes.filter(
+      change => change.type === 'position' && change.dragging === false
+    );
+
+    if (positionChanges.length > 0) {
+      // Collect all current positions
+      setNodes(currentNodes => {
+        const positions = {};
+        currentNodes.forEach(node => {
+          positions[node.id] = node.position;
+        });
+        nodePositionsRef.current = positions;
+        // Save to project settings
+        updateNodePositions(positions);
+        return currentNodes;
+      });
+    }
+  }, [onNodesChange, updateNodePositions, setNodes]);
+
   // Handle node click - select table and notify parent
   const onNodeClick = useCallback((event, node) => {
     selectTable(node.id);
@@ -300,7 +343,7 @@ function SchemaViewInner({ onTableSelect }) {
     <ReactFlow
       nodes={nodes}
       edges={edges}
-      onNodesChange={onNodesChange}
+      onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeClick={onNodeClick}
       nodeTypes={nodeTypes}

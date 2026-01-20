@@ -76,4 +76,11 @@ contextBridge.exposeInMainWorld('electron', {
   onFitDiagram: (callback) => {
     ipcRenderer.on('fit-diagram', callback);
   },
+
+  // ============================================================================
+  // PROJECT SETTINGS (.runway file)
+  // ============================================================================
+  loadProjectSettings: (folderPath) => ipcRenderer.invoke('project:load-settings', folderPath),
+
+  saveProjectSettings: (folderPath, settings) => ipcRenderer.invoke('project:save-settings', folderPath, settings),
 });

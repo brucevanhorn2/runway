@@ -28,6 +28,8 @@
 ### Persistence
 - [x] Remember last opened folder
 - [x] Recent folders menu
+- [x] Remember splitter positions (per-project .runway file)
+- [x] Remember diagram node positions (per-project .runway file)
 
 ### Documentation Generation
 - [x] Export to Markdown documentation (Cmd+Shift+D)
@@ -50,7 +52,6 @@
 ### Diagram Enhancements
 - [ ] Search/filter to highlight specific tables
 - [ ] Group tables by folder or naming prefix
-- [ ] Save/restore diagram layout positions
 - [ ] Collapse/expand table nodes
 - [ ] Right-click context menu on nodes
 - [ ] Minimap toggle
@@ -63,7 +64,6 @@
 - [ ] Breadcrumb navigation
 
 ### Persistence & Settings
-- [ ] Remember splitter positions
 - [ ] User preferences dialog
 
 ### Schema Diffing (Future)

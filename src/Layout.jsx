@@ -10,6 +10,7 @@ import './Layout.css';
 import { SchemaProvider, useSchema } from './contexts/SchemaContext';
 import { EditorProvider, useEditor } from './contexts/EditorContext';
 import { SelectionProvider, useSelection } from './contexts/SelectionContext';
+import { ProjectSettingsProvider, useProjectSettings } from './contexts/ProjectSettingsContext';
 
 // Import parser
 import { parseAllFiles } from './parser';
@@ -27,6 +28,7 @@ function LayoutInner() {
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile } = useEditor();
+  const { settings, loadSettings, updateSplitterSizes, isLoaded } = useProjectSettings();
 
   // Parse all DDL files and update schema
   const parseSchema = useCallback(async (folderPath) => {
@@ -55,7 +57,9 @@ function LayoutInner() {
     setOpenFolderPath(data.path);
     clearSchema();
     parseSchema(data.path);
-  }, [clearSchema, parseSchema]);
+    // Load project-specific settings (.runway file)
+    loadSettings(data.path);
+  }, [clearSchema, parseSchema, loadSettings]);
 
   // Handle file changes - update file type in tree and re-parse schema
   const handleFileChanged = useCallback((data) => {
@@ -202,10 +206,18 @@ function LayoutInner() {
       </Header>
 
       <Content style={{ flex: 1, overflow: 'hidden' }}>
-        <Splitter style={{ height: '100%', width: '100%' }}>
+        <Splitter
+          style={{ height: '100%', width: '100%' }}
+          onResizeEnd={(sizes) => {
+            // Save left pane size when resize ends
+            if (sizes[0] !== undefined) {
+              updateSplitterSizes(sizes[0] + 'px', null);
+            }
+          }}
+        >
           {/* Left Pane - File Browser */}
           <Splitter.Pane
-            defaultSize={leftCollapsed ? '0%' : '20%'}
+            size={leftCollapsed ? 0 : (isLoaded ? settings.splitter.leftPaneSize : '20%')}
             min="0%"
             max="40%"
             resizable={!leftCollapsed}
@@ -232,17 +244,25 @@ function LayoutInner() {
 
           {/* Center Pane - Diagram and Editor */}
           <Splitter.Pane
-            defaultSize="80%"
             style={{
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Splitter layout="vertical" style={{ height: '100%' }}>
+            <Splitter
+              layout="vertical"
+              style={{ height: '100%' }}
+              onResizeEnd={(sizes) => {
+                // Save diagram pane size when resize ends
+                if (sizes[0] !== undefined) {
+                  updateSplitterSizes(null, sizes[0] + 'px');
+                }
+              }}
+            >
               {/* Top - Schema Diagram */}
               <Splitter.Pane
-                defaultSize="60%"
+                size={isLoaded ? settings.splitter.diagramPaneSize : '60%'}
                 min="20%"
                 style={{
                   overflow: 'hidden',
@@ -260,7 +280,6 @@ function LayoutInner() {
 
               {/* Bottom - SQL Editor Tabs */}
               <Splitter.Pane
-                defaultSize="40%"
                 min="100px"
                 style={{
                   overflow: 'hidden',
@@ -282,13 +301,15 @@ function LayoutInner() {
 
 function Layout() {
   return (
-    <SchemaProvider>
-      <EditorProvider>
-        <SelectionProvider>
-          <LayoutInner />
-        </SelectionProvider>
-      </EditorProvider>
-    </SchemaProvider>
+    <ProjectSettingsProvider>
+      <SchemaProvider>
+        <EditorProvider>
+          <SelectionProvider>
+            <LayoutInner />
+          </SelectionProvider>
+        </EditorProvider>
+      </SchemaProvider>
+    </ProjectSettingsProvider>
   );
 }
 

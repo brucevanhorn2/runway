@@ -668,6 +668,41 @@ const setupIPC = () => {
     }
   });
 
+  // ============================================================================
+  // PROJECT SETTINGS (.runway file)
+  // ============================================================================
+
+  // Load project settings from .runway file in folder
+  ipcMain.handle('project:load-settings', async (event, folderPath) => {
+    try {
+      const settingsPath = path.join(folderPath, '.runway');
+      const exists = await fs.access(settingsPath).then(() => true).catch(() => false);
+
+      if (!exists) {
+        return { success: true, settings: null };
+      }
+
+      const content = await fs.readFile(settingsPath, 'utf-8');
+      const projectSettings = JSON.parse(content);
+      return { success: true, settings: projectSettings };
+    } catch (error) {
+      console.error('[Main] Error loading project settings:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Save project settings to .runway file in folder
+  ipcMain.handle('project:save-settings', async (event, folderPath, projectSettings) => {
+    try {
+      const settingsPath = path.join(folderPath, '.runway');
+      await fs.writeFile(settingsPath, JSON.stringify(projectSettings, null, 2), 'utf-8');
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Error saving project settings:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   console.log('[Main] IPC handlers registered');
 };
 
