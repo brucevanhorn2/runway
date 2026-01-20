@@ -264,6 +264,34 @@ const createMenu = () => {
             mainWindow.webContents.send('fit-diagram');
           },
         },
+        { type: 'separator' },
+        {
+          id: 'search-files',
+          label: 'Search in Files',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('toggle-search');
+          },
+        },
+        {
+          id: 'find-usages',
+          label: 'Find Usages',
+          accelerator: 'Alt+F7',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('find-usages');
+          },
+        },
+        {
+          id: 'go-to-definition',
+          label: 'Go to Definition',
+          accelerator: 'CmdOrCtrl+G',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('go-to-definition');
+          },
+        },
       ],
     },
   ];
@@ -286,12 +314,19 @@ function updateMenuState() {
   const exportPlantumlItem = menu.getMenuItemById('export-plantuml');
   const exportMarkdownDocsItem = menu.getMenuItemById('export-markdown-docs');
   const exportDataDictItem = menu.getMenuItemById('export-data-dictionary');
+  const searchFilesItem = menu.getMenuItemById('search-files');
+  const findUsagesItem = menu.getMenuItemById('find-usages');
+
+  const goToDefItem = menu.getMenuItemById('go-to-definition');
 
   if (newFileItem) newFileItem.enabled = hasFolderOpen;
   if (exportSvgItem) exportSvgItem.enabled = hasFolderOpen;
   if (exportPlantumlItem) exportPlantumlItem.enabled = hasFolderOpen;
   if (exportMarkdownDocsItem) exportMarkdownDocsItem.enabled = hasFolderOpen;
   if (exportDataDictItem) exportDataDictItem.enabled = hasFolderOpen;
+  if (searchFilesItem) searchFilesItem.enabled = hasFolderOpen;
+  if (findUsagesItem) findUsagesItem.enabled = hasFolderOpen;
+  if (goToDefItem) goToDefItem.enabled = hasFolderOpen;
 }
 
 /**
@@ -699,6 +734,101 @@ const setupIPC = () => {
       return { success: true };
     } catch (error) {
       console.error('[Main] Error saving project settings:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ============================================================================
+  // SEARCH
+  // ============================================================================
+
+  // Search across all files in folder
+  ipcMain.handle('search:files', async (event, folderPath, query) => {
+    try {
+      if (!query || query.trim().length === 0) {
+        return { success: true, matches: [] };
+      }
+
+      const files = await scanProjectFiles(folderPath);
+      const matches = [];
+      const searchRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+
+      for (const file of files) {
+        try {
+          const content = await fs.readFile(file.path, 'utf-8');
+          const lines = content.split('\n');
+          const fileMatches = [];
+
+          lines.forEach((line, index) => {
+            if (searchRegex.test(line)) {
+              fileMatches.push({
+                lineNumber: index + 1,
+                lineContent: line.substring(0, 200), // Limit line length
+              });
+              // Reset regex lastIndex for next test
+              searchRegex.lastIndex = 0;
+            }
+          });
+
+          if (fileMatches.length > 0) {
+            matches.push({
+              filePath: file.path,
+              fileName: file.name,
+              relativePath: file.relativePath,
+              matches: fileMatches,
+            });
+          }
+        } catch (fileError) {
+          console.error(`[Main] Error reading file for search: ${file.path}`, fileError);
+        }
+      }
+
+      return { success: true, matches };
+    } catch (error) {
+      console.error('[Main] Search error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Find usages - which tables reference a given table
+  ipcMain.handle('search:find-usages', async (event, folderPath, tableName) => {
+    try {
+      const files = await scanSqlFiles(folderPath);
+      const usages = [];
+      const referencePattern = new RegExp(`REFERENCES\\s+["']?${tableName}["']?`, 'gi');
+
+      for (const file of files) {
+        try {
+          const content = await fs.readFile(file.path, 'utf-8');
+          const lines = content.split('\n');
+          const fileUsages = [];
+
+          lines.forEach((line, index) => {
+            if (referencePattern.test(line)) {
+              fileUsages.push({
+                lineNumber: index + 1,
+                lineContent: line.trim().substring(0, 200),
+              });
+              referencePattern.lastIndex = 0;
+            }
+          });
+
+          if (fileUsages.length > 0) {
+            usages.push({
+              filePath: file.path,
+              fileName: file.name,
+              relativePath: file.relativePath,
+              matches: fileUsages,
+            });
+          }
+        } catch (fileError) {
+          console.error(`[Main] Error reading file for usages: ${file.path}`, fileError);
+        }
+      }
+
+      return { success: true, usages };
+    } catch (error) {
+      console.error('[Main] Find usages error:', error);
       return { success: false, error: error.message };
     }
   });

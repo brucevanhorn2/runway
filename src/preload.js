@@ -83,4 +83,23 @@ contextBridge.exposeInMainWorld('electron', {
   loadProjectSettings: (folderPath) => ipcRenderer.invoke('project:load-settings', folderPath),
 
   saveProjectSettings: (folderPath, settings) => ipcRenderer.invoke('project:save-settings', folderPath, settings),
+
+  // ============================================================================
+  // SEARCH
+  // ============================================================================
+  searchFiles: (folderPath, query) => ipcRenderer.invoke('search:files', folderPath, query),
+
+  findUsages: (folderPath, tableName) => ipcRenderer.invoke('search:find-usages', folderPath, tableName),
+
+  onToggleSearch: (callback) => {
+    ipcRenderer.on('toggle-search', callback);
+  },
+
+  onFindUsages: (callback) => {
+    ipcRenderer.on('find-usages', callback);
+  },
+
+  onGoToDefinition: (callback) => {
+    ipcRenderer.on('go-to-definition', callback);
+  },
 });

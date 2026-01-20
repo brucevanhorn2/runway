@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Layout as AntLayout, Splitter } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined, CloseOutlined } from '@ant-design/icons';
 import FileTree from './components/FileTree';
 import SchemaView from './components/SchemaView';
 import SqlTabs from './components/SqlTabs';
+import SearchPanel from './components/SearchPanel';
+import FindUsagesPanel from './components/FindUsagesPanel';
+import Breadcrumb from './components/Breadcrumb';
 import './Layout.css';
 
 // Import context providers
@@ -25,10 +28,14 @@ function LayoutInner() {
   const [sqlFiles, setSqlFiles] = useState([]);
   const [openFolderPath, setOpenFolderPath] = useState(null);
   const [highlightedFile, setHighlightedFile] = useState(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showFindUsages, setShowFindUsages] = useState(false);
+  const [findUsagesTable, setFindUsagesTable] = useState(null);
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile } = useEditor();
   const { settings, loadSettings, updateSplitterSizes, isLoaded } = useProjectSettings();
+  const { selectedTable } = useSelection();
 
   // Parse all DDL files and update schema
   const parseSchema = useCallback(async (folderPath) => {
@@ -172,6 +179,43 @@ function LayoutInner() {
     await window.electron.saveDataDictionary(dictionary);
   }, [schema]);
 
+  // Handle search toggle
+  const handleToggleSearch = useCallback(() => {
+    setShowSearch(prev => !prev);
+    setShowFindUsages(false);
+  }, []);
+
+  // Handle find usages
+  const handleFindUsages = useCallback(() => {
+    if (selectedTable) {
+      setFindUsagesTable(selectedTable);
+      setShowFindUsages(true);
+      setShowSearch(false);
+    }
+  }, [selectedTable]);
+
+  // Close search panel
+  const handleCloseSearch = useCallback(() => {
+    setShowSearch(false);
+  }, []);
+
+  // Close find usages panel
+  const handleCloseFindUsages = useCallback(() => {
+    setShowFindUsages(false);
+    setFindUsagesTable(null);
+  }, []);
+
+  // Handle go to definition - jump to the selected table's source file
+  const handleGoToDefinition = useCallback(() => {
+    if (selectedTable) {
+      const table = schema.tables.find(t => t.name === selectedTable);
+      if (table && table.sourceFile) {
+        openFile(table.sourceFile, table.sourceFile.split('/').pop());
+        setHighlightedFile(table.sourceFile);
+      }
+    }
+  }, [selectedTable, schema, openFile]);
+
   useEffect(() => {
     if (window.electron) {
       window.electron.onFolderOpened(handleFolderOpened);
@@ -181,8 +225,11 @@ function LayoutInner() {
       window.electron.onFileCreated(handleFileCreated);
       window.electron.onExportMarkdownDocs(handleExportMarkdownDocs);
       window.electron.onExportDataDictionary(handleExportDataDictionary);
+      window.electron.onToggleSearch(handleToggleSearch);
+      window.electron.onFindUsages(handleFindUsages);
+      window.electron.onGoToDefinition(handleGoToDefinition);
     }
-  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>
@@ -200,47 +247,96 @@ function LayoutInner() {
         }}
       >
         <div style={{ fontSize: '16px', fontWeight: 'bold' }}>Runway</div>
-        <div style={{ fontSize: '12px', color: '#888' }}>
-          {openFolderPath ? openFolderPath : 'No folder open'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ fontSize: '12px', color: '#888' }}>
+            {openFolderPath ? openFolderPath : 'No folder open'}
+          </div>
+          {openFolderPath && (
+            <button
+              onClick={handleToggleSearch}
+              style={{
+                background: showSearch ? '#0e639c' : 'transparent',
+                border: '1px solid #555',
+                borderRadius: '4px',
+                padding: '4px 8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                color: '#ccc',
+                fontSize: '12px',
+              }}
+              title="Search in Files (Cmd+Shift+F)"
+            >
+              <SearchOutlined />
+              Search
+            </button>
+          )}
         </div>
       </Header>
 
-      <Content style={{ flex: 1, overflow: 'hidden' }}>
-        <Splitter
-          style={{ height: '100%', width: '100%' }}
-          onResizeEnd={(sizes) => {
-            // Save left pane size when resize ends
-            if (sizes[0] !== undefined) {
-              updateSplitterSizes(sizes[0] + 'px', null);
-            }
-          }}
-        >
-          {/* Left Pane - File Browser */}
-          <Splitter.Pane
-            size={leftCollapsed ? 0 : (isLoaded ? settings.splitter.leftPaneSize : '20%')}
-            min="0%"
-            max="40%"
-            resizable={!leftCollapsed}
-            style={{
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <div className="pane-header">
-              <span>SQL Files</span>
-              <button onClick={() => setLeftCollapsed(!leftCollapsed)}>
-                {leftCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              </button>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', background: '#1e1e1e' }}>
-              <FileTree
+      <Content style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Breadcrumb Navigation */}
+        <Breadcrumb folderPath={openFolderPath} sqlFiles={sqlFiles} />
+
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+          {/* Search Panel - slides in from left */}
+          {showSearch && (
+            <div style={{ width: '350px', borderRight: '1px solid #333', flexShrink: 0 }}>
+              <SearchPanel
                 files={sqlFiles}
-                onFileSelect={handleFileSelect}
-                highlightedFile={highlightedFile}
+                folderPath={openFolderPath}
+                onClose={handleCloseSearch}
               />
             </div>
-          </Splitter.Pane>
+          )}
+
+          {/* Find Usages Panel - slides in from left */}
+          {showFindUsages && findUsagesTable && (
+            <div style={{ width: '350px', borderRight: '1px solid #333', flexShrink: 0 }}>
+              <FindUsagesPanel
+                tableName={findUsagesTable}
+                folderPath={openFolderPath}
+                onClose={handleCloseFindUsages}
+              />
+            </div>
+          )}
+
+          <Splitter
+            style={{ height: '100%', flex: 1 }}
+            onResizeEnd={(sizes) => {
+              // Save left pane size when resize ends
+              if (sizes[0] !== undefined) {
+                updateSplitterSizes(sizes[0] + 'px', null);
+              }
+            }}
+          >
+            {/* Left Pane - File Browser */}
+            <Splitter.Pane
+              size={leftCollapsed ? 0 : (isLoaded ? settings.splitter.leftPaneSize : '20%')}
+              min="0%"
+              max="40%"
+              resizable={!leftCollapsed}
+              style={{
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <div className="pane-header">
+                <span>SQL Files</span>
+                <button onClick={() => setLeftCollapsed(!leftCollapsed)}>
+                  {leftCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                </button>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', background: '#1e1e1e' }}>
+                <FileTree
+                  files={sqlFiles}
+                  onFileSelect={handleFileSelect}
+                  highlightedFile={highlightedFile}
+                />
+              </div>
+            </Splitter.Pane>
 
           {/* Center Pane - Diagram and Editor */}
           <Splitter.Pane
@@ -293,7 +389,8 @@ function LayoutInner() {
               </Splitter.Pane>
             </Splitter>
           </Splitter.Pane>
-        </Splitter>
+          </Splitter>
+        </div>
       </Content>
     </AntLayout>
   );

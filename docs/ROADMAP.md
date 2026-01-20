@@ -31,6 +31,12 @@
 - [x] Remember splitter positions (per-project .runway file)
 - [x] Remember diagram node positions (per-project .runway file)
 
+### Navigation & Search
+- [x] Global search across all files (Cmd+Shift+F)
+- [x] "Find usages" - which tables reference this table? (Alt+F7)
+- [x] Go to Definition - jump from diagram to file (Cmd+G)
+- [x] Breadcrumb navigation
+
 ### Documentation Generation
 - [x] Export to Markdown documentation (Cmd+Shift+D)
 - [x] Generate data dictionary report (Cmd+Shift+R)
@@ -56,12 +62,6 @@
 - [ ] Right-click context menu on nodes
 - [ ] Minimap toggle
 - [ ] Different layout algorithms (hierarchical, force-directed)
-
-### Navigation & Search
-- [ ] Global search across all files (Cmd+Shift+F)
-- [ ] "Find usages" - which tables reference this table?
-- [ ] Keyboard shortcut to jump from diagram node to file
-- [ ] Breadcrumb navigation
 
 ### Persistence & Settings
 - [ ] User preferences dialog
