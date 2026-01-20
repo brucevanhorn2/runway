@@ -1,9 +1,11 @@
 /**
- * DDL Parser for PostgreSQL
+ * DDL Parser for PostgreSQL using AST
  *
- * Parses CREATE TABLE, CREATE TYPE (enum), CREATE SEQUENCE, and COMMENT ON statements.
- * Returns a schema object with tables, types, sequences, and comments.
+ * Parses CREATE TABLE, CREATE TYPE (enum), and CREATE SEQUENCE statements.
+ * Returns a schema object with tables, types, and sequences.
  */
+
+import { parse } from 'pgsql-ast-parser';
 
 /**
  * Parse all DDL files and return a unified schema
@@ -15,10 +17,7 @@ export function parseAllFiles(files) {
     tables: [],
     types: [],
     sequences: [],
-    comments: {
-      tables: {},    // { tableName: 'comment' }
-      columns: {},   // { 'tableName.columnName': 'comment' }
-    },
+    alterTableConstraints: [], // Store ALTER TABLE statements to apply later
   };
 
   for (const file of files) {
@@ -27,26 +26,23 @@ export function parseAllFiles(files) {
       schema.tables.push(...fileSchema.tables);
       schema.types.push(...fileSchema.types);
       schema.sequences.push(...fileSchema.sequences);
-
-      // Merge comments
-      Object.assign(schema.comments.tables, fileSchema.comments.tables);
-      Object.assign(schema.comments.columns, fileSchema.comments.columns);
+      schema.alterTableConstraints.push(...fileSchema.alterTableConstraints);
     } catch (error) {
       console.error(`Error parsing ${file.path}:`, error);
     }
   }
 
+  // Apply ALTER TABLE constraints
+  applyAlterTableConstraints(schema);
+
   // Resolve foreign key references
   resolveForeignKeys(schema);
-
-  // Apply comments to tables and columns
-  applyComments(schema);
 
   return schema;
 }
 
 /**
- * Parse DDL content from a single file
+ * Parse DDL content from a single file using AST parser
  * @param {string} content SQL content
  * @param {string} sourceFile Source file path
  * @returns {Object} Partial schema
@@ -56,287 +52,132 @@ export function parseDDL(content, sourceFile = '') {
     tables: [],
     types: [],
     sequences: [],
-    comments: {
-      tables: {},
-      columns: {},
-    },
+    alterTableConstraints: [],
   };
 
-  // Parse COMMENT ON statements BEFORE removing comments (they use SQL string literals)
-  parseCommentStatements(content, schema.comments);
+  try {
+    const ast = parse(content, { locationTracking: false });
 
-  // Remove SQL comments for DDL parsing
-  const cleanContent = removeComments(content);
-
-  // Parse CREATE TYPE statements (enums)
-  const types = parseTypes(cleanContent, sourceFile);
-  schema.types.push(...types);
-
-  // Parse CREATE SEQUENCE statements
-  const sequences = parseSequences(cleanContent, sourceFile);
-  schema.sequences.push(...sequences);
-
-  // Parse CREATE TABLE statements
-  const tables = parseTables(cleanContent, sourceFile);
-  schema.tables.push(...tables);
-
-  // Parse ALTER TABLE statements for foreign keys
-  parseAlterTables(cleanContent, schema.tables);
+    for (const statement of ast) {
+      if (statement.type === 'create enum') {
+        schema.types.push(parseEnumType(statement, sourceFile));
+      } else if (statement.type === 'create table') {
+        schema.tables.push(parseTable(statement, sourceFile));
+      } else if (statement.type === 'create sequence') {
+        schema.sequences.push(parseSequence(statement, sourceFile));
+      } else if (statement.type === 'alter table') {
+        schema.alterTableConstraints.push(parseAlterTable(statement));
+      }
+    }
+  } catch (error) {
+    console.warn(`AST parse error in ${sourceFile}:`, error.message);
+    // File might have syntax errors or unsupported constructs, skip it
+  }
 
   return schema;
 }
 
 /**
- * Remove SQL comments
+ * Parse CREATE TYPE ... AS ENUM from AST
  */
-function removeComments(content) {
-  // Remove single-line comments
-  let result = content.replace(/--.*$/gm, '');
-  // Remove multi-line comments
-  result = result.replace(/\/\*[\s\S]*?\*\//g, '');
-  return result;
+function parseEnumType(statement, sourceFile) {
+  return {
+    name: cleanIdentifier(statement.name),
+    values: statement.values.map(v => v.value),
+    sourceFile,
+  };
 }
 
 /**
- * Parse CREATE TYPE ... AS ENUM statements
+ * Parse CREATE SEQUENCE from AST
  */
-function parseTypes(content, sourceFile) {
-  const types = [];
-  const typeRegex = /CREATE\s+TYPE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)\s+AS\s+ENUM\s*\(\s*([^)]+)\s*\)/gi;
+function parseSequence(statement, sourceFile) {
+  const seq = {
+    name: cleanIdentifier(statement.name),
+    start: 1,
+    increment: 1,
+    sourceFile,
+  };
 
-  let match;
-  while ((match = typeRegex.exec(content)) !== null) {
-    const name = cleanIdentifier(match[1]);
-    const valuesStr = match[2];
-    const values = valuesStr
-      .split(',')
-      .map(v => v.trim().replace(/^'|'$/g, ''))
-      .filter(v => v.length > 0);
-
-    types.push({
-      name,
-      values,
-      sourceFile,
-    });
-  }
-
-  return types;
-}
-
-/**
- * Parse CREATE SEQUENCE statements
- */
-function parseSequences(content, sourceFile) {
-  const sequences = [];
-  const seqRegex = /CREATE\s+SEQUENCE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)([^;]*)/gi;
-
-  let match;
-  while ((match = seqRegex.exec(content)) !== null) {
-    const name = cleanIdentifier(match[1]);
-    const options = match[2];
-
-    let start = 1;
-    let increment = 1;
-
-    const startMatch = options.match(/START\s+(?:WITH\s+)?(\d+)/i);
-    if (startMatch) start = parseInt(startMatch[1], 10);
-
-    const incMatch = options.match(/INCREMENT\s+(?:BY\s+)?(\d+)/i);
-    if (incMatch) increment = parseInt(incMatch[1], 10);
-
-    sequences.push({
-      name,
-      start,
-      increment,
-      sourceFile,
-    });
-  }
-
-  return sequences;
-}
-
-/**
- * Parse CREATE TABLE statements
- */
-function parseTables(content, sourceFile) {
-  const tables = [];
-
-  // Split content by CREATE TABLE to handle each table separately
-  // This avoids complex nested parenthesis matching in regex
-  const createTablePattern = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)\s*\(/gi;
-  
-  let match;
-  const tableStarts = [];
-  
-  while ((match = createTablePattern.exec(content)) !== null) {
-    tableStarts.push({
-      name: cleanIdentifier(match[1]),
-      start: match.index,
-      openParenPos: match.index + match[0].length - 1,
-    });
-  }
-  
-  // For each table, find its body by matching parentheses
-  for (let i = 0; i < tableStarts.length; i++) {
-    const tableInfo = tableStarts[i];
-    const searchStart = tableInfo.openParenPos + 1;
-    const searchEnd = i < tableStarts.length - 1 ? tableStarts[i + 1].start : content.length;
-    
-    // Find matching closing parenthesis
-    let depth = 1;
-    let bodyEnd = -1;
-    
-    for (let j = searchStart; j < searchEnd && depth > 0; j++) {
-      if (content[j] === '(') depth++;
-      else if (content[j] === ')') {
-        depth--;
-        if (depth === 0) {
-          bodyEnd = j;
-          break;
-        }
+  if (statement.options) {
+    for (const option of statement.options) {
+      if (option.type === 'start with') {
+        seq.start = option.value;
+      } else if (option.type === 'increment by') {
+        seq.increment = option.value;
       }
     }
-    
-    if (bodyEnd === -1) continue;
-    
-    const bodyContent = content.substring(searchStart, bodyEnd);
-    
-    const table = {
-      name: tableInfo.name,
-      columns: [],
-      primaryKey: [],
-      foreignKeys: [],
-      uniqueConstraints: [],
-      sourceFile,
-    };
-
-    // Parse the table body
-    parseTableBody(bodyContent, table);
-
-    tables.push(table);
   }
 
-  return tables;
+  return seq;
 }
 
 /**
- * Parse the body of a CREATE TABLE statement
+ * Parse CREATE TABLE from AST
  */
-function parseTableBody(bodyContent, table) {
-  // Split by commas, but be careful about nested parentheses
-  const parts = splitTableBody(bodyContent);
+function parseTable(statement, sourceFile) {
+  const table = {
+    name: cleanIdentifier(statement.name),
+    columns: [],
+    primaryKey: [],
+    foreignKeys: [],
+    uniqueConstraints: [],
+    sourceFile,
+  };
 
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
+  if (!statement.columns) return table;
 
-    // Check for PRIMARY KEY constraint
-    const pkMatch = trimmed.match(/^\s*(?:CONSTRAINT\s+["\w]+\s+)?PRIMARY\s+KEY\s*\(([^)]+)\)/i);
-    if (pkMatch) {
-      const columns = pkMatch[1].split(',').map(c => cleanIdentifier(c.trim()));
-      table.primaryKey.push(...columns);
-      continue;
-    }
-
-    // Check for FOREIGN KEY constraint
-    const fkMatch = trimmed.match(/^\s*(?:CONSTRAINT\s+(["\w]+)\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(["\w.]+)\s*(?:\(([^)]+)\))?/i);
-    if (fkMatch) {
-      const constraintName = fkMatch[1] ? cleanIdentifier(fkMatch[1]) : null;
-      const columns = fkMatch[2].split(',').map(c => cleanIdentifier(c.trim()));
-      const refTable = cleanIdentifier(fkMatch[3]);
-      const refColumns = fkMatch[4]
-        ? fkMatch[4].split(',').map(c => cleanIdentifier(c.trim()))
-        : columns;
-
-      table.foreignKeys.push({
-        constraintName,
-        columns,
-        referencedTable: refTable,
-        referencedColumns: refColumns,
-      });
-      continue;
-    }
-
-    // Check for UNIQUE constraint
-    const uniqueMatch = trimmed.match(/^\s*(?:CONSTRAINT\s+["\w]+\s+)?UNIQUE\s*\(([^)]+)\)/i);
-    if (uniqueMatch) {
-      const columns = uniqueMatch[1].split(',').map(c => cleanIdentifier(c.trim()));
-      table.uniqueConstraints.push(columns);
-      continue;
-    }
-
-    // Otherwise, it's a column definition
-    const column = parseColumn(trimmed);
-    if (column) {
+  for (const item of statement.columns) {
+    if (item.kind === 'column') {
+      const column = parseColumn(item);
       table.columns.push(column);
 
-      // Check for inline PRIMARY KEY
-      if (column.isPrimaryKey) {
-        table.primaryKey.push(column.name);
+      // Extract inline constraints
+      if (item.constraints) {
+        for (const constraint of item.constraints) {
+          if (constraint.type === 'primary key') {
+            table.primaryKey.push(column.name);
+          } else if (constraint.type === 'unique') {
+            table.uniqueConstraints.push([column.name]);
+          } else if (constraint.type === 'reference') {
+            table.foreignKeys.push({
+              constraintName: null,
+              columns: [column.name],
+              referencedTable: cleanIdentifier(constraint.foreignTable),
+              referencedColumns: constraint.foreignColumns 
+                ? constraint.foreignColumns.map(c => cleanIdentifier(c))
+                : [column.name],
+            });
+          }
+        }
       }
-
-      // Check for inline REFERENCES (foreign key)
-      if (column.references) {
+    } else if (item.kind === 'constraint') {
+      // Table-level constraints
+      if (item.type === 'primary key') {
+        table.primaryKey.push(...item.columns.map(c => cleanIdentifier(c)));
+      } else if (item.type === 'unique') {
+        table.uniqueConstraints.push(item.columns.map(c => cleanIdentifier(c)));
+      } else if (item.type === 'foreign key') {
         table.foreignKeys.push({
-          constraintName: null,
-          columns: [column.name],
-          referencedTable: column.references.table,
-          referencedColumns: column.references.columns,
+          constraintName: item.constraintName ? cleanIdentifier(item.constraintName) : null,
+          columns: item.localColumns.map(c => cleanIdentifier(c)),
+          referencedTable: cleanIdentifier(item.foreignTable),
+          referencedColumns: item.foreignColumns.map(c => cleanIdentifier(c)),
         });
       }
     }
   }
+
+  return table;
 }
 
 /**
- * Split table body by commas, respecting parentheses
+ * Parse column definition from AST
  */
-function splitTableBody(content) {
-  const parts = [];
-  let current = '';
-  let depth = 0;
-
-  for (const char of content) {
-    if (char === '(') {
-      depth++;
-      current += char;
-    } else if (char === ')') {
-      depth--;
-      current += char;
-    } else if (char === ',' && depth === 0) {
-      parts.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-
-  if (current.trim()) {
-    parts.push(current);
-  }
-
-  return parts;
-}
-
-/**
- * Parse a single column definition
- */
-function parseColumn(definition) {
-  // Column pattern: name type [constraints...]
-  const columnMatch = definition.match(/^\s*(["\w]+)\s+([A-Za-z_][\w\s()[\],]*?)(\s+(?:NOT\s+NULL|NULL|DEFAULT|PRIMARY\s+KEY|UNIQUE|REFERENCES|CHECK|CONSTRAINT).*)?\s*$/i);
-
-  if (!columnMatch) return null;
-
-  const name = cleanIdentifier(columnMatch[1]);
-  let dataType = columnMatch[2].trim();
-  const constraintsPart = columnMatch[3] || '';
-
-  // Normalize data type
-  dataType = normalizeDataType(dataType);
-
+function parseColumn(columnDef) {
   const column = {
-    name,
-    dataType,
+    name: cleanIdentifier(columnDef.name),
+    dataType: formatDataType(columnDef.dataType),
     nullable: true,
     defaultValue: null,
     isUnique: false,
@@ -344,68 +185,70 @@ function parseColumn(definition) {
     references: null,
   };
 
-  // Parse constraints
-  if (/NOT\s+NULL/i.test(constraintsPart)) {
-    column.nullable = false;
-  }
-
-  if (/\bNULL\b/i.test(constraintsPart) && !/NOT\s+NULL/i.test(constraintsPart)) {
-    column.nullable = true;
-  }
-
-  const defaultMatch = constraintsPart.match(/DEFAULT\s+([^,\s]+(?:\([^)]*\))?)/i);
-  if (defaultMatch) {
-    column.defaultValue = defaultMatch[1];
-  }
-
-  if (/PRIMARY\s+KEY/i.test(constraintsPart)) {
-    column.isPrimaryKey = true;
-    column.nullable = false;
-  }
-
-  if (/\bUNIQUE\b/i.test(constraintsPart)) {
-    column.isUnique = true;
-  }
-
-  // Inline REFERENCES
-  const refMatch = constraintsPart.match(/REFERENCES\s+(["\w.]+)\s*(?:\(([^)]+)\))?/i);
-  if (refMatch) {
-    column.references = {
-      table: cleanIdentifier(refMatch[1]),
-      columns: refMatch[2]
-        ? refMatch[2].split(',').map(c => cleanIdentifier(c.trim()))
-        : [name],
-    };
+  if (columnDef.constraints) {
+    for (const constraint of columnDef.constraints) {
+      if (constraint.type === 'not null') {
+        column.nullable = false;
+      } else if (constraint.type === 'null') {
+        column.nullable = true;
+      } else if (constraint.type === 'default') {
+        column.defaultValue = formatDefault(constraint.default);
+      } else if (constraint.type === 'primary key') {
+        column.isPrimaryKey = true;
+        column.nullable = false;
+      } else if (constraint.type === 'unique') {
+        column.isUnique = true;
+      } else if (constraint.type === 'reference') {
+        column.references = {
+          table: cleanIdentifier(constraint.foreignTable),
+          columns: constraint.foreignColumns 
+            ? constraint.foreignColumns.map(c => cleanIdentifier(c))
+            : [column.name],
+        };
+      }
+    }
   }
 
   return column;
 }
 
 /**
- * Parse ALTER TABLE statements for foreign keys
+ * Parse ALTER TABLE statement
  */
-function parseAlterTables(content, tables) {
-  const alterRegex = /ALTER\s+TABLE\s+(?:ONLY\s+)?(["\w.]+)\s+ADD\s+(?:CONSTRAINT\s+(["\w]+)\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(["\w.]+)\s*(?:\(([^)]+)\))?/gi;
+function parseAlterTable(statement) {
+  const alterations = [];
 
-  let match;
-  while ((match = alterRegex.exec(content)) !== null) {
-    const tableName = cleanIdentifier(match[1]);
-    const constraintName = match[2] ? cleanIdentifier(match[2]) : null;
-    const columns = match[3].split(',').map(c => cleanIdentifier(c.trim()));
-    const refTable = cleanIdentifier(match[4]);
-    const refColumns = match[5]
-      ? match[5].split(',').map(c => cleanIdentifier(c.trim()))
-      : columns;
+  if (statement.changes) {
+    for (const change of statement.changes) {
+      if (change.type === 'add constraint' && change.constraint.type === 'foreign key') {
+        alterations.push({
+          tableName: cleanIdentifier(statement.table),
+          foreignKey: {
+            constraintName: change.constraint.constraintName 
+              ? cleanIdentifier(change.constraint.constraintName) 
+              : null,
+            columns: change.constraint.localColumns.map(c => cleanIdentifier(c)),
+            referencedTable: cleanIdentifier(change.constraint.foreignTable),
+            referencedColumns: change.constraint.foreignColumns.map(c => cleanIdentifier(c)),
+          },
+        });
+      }
+    }
+  }
 
-    // Find the table and add the foreign key
-    const table = tables.find(t => t.name === tableName);
-    if (table) {
-      table.foreignKeys.push({
-        constraintName,
-        columns,
-        referencedTable: refTable,
-        referencedColumns: refColumns,
-      });
+  return alterations;
+}
+
+/**
+ * Apply ALTER TABLE constraints to tables
+ */
+function applyAlterTableConstraints(schema) {
+  for (const alterList of schema.alterTableConstraints) {
+    for (const alter of alterList) {
+      const table = schema.tables.find(t => t.name === alter.tableName);
+      if (table && alter.foreignKey) {
+        table.foreignKeys.push(alter.foreignKey);
+      }
     }
   }
 }
@@ -429,86 +272,64 @@ function resolveForeignKeys(schema) {
 }
 
 /**
- * Clean identifier (remove quotes, extract name from schema.name)
+ * Format data type from AST node
+ */
+function formatDataType(dataType) {
+  if (!dataType) return 'UNKNOWN';
+
+  let typeName = dataType.name.toUpperCase();
+
+  // Handle type with config (e.g., VARCHAR(255), DECIMAL(10,2))
+  if (dataType.config && dataType.config.length > 0) {
+    typeName += `(${dataType.config.join(',')})`;
+  }
+
+  // Handle array types
+  if (dataType.arrayOf) {
+    return formatDataType(dataType.arrayOf) + '[]';
+  }
+
+  return typeName;
+}
+
+/**
+ * Format default value from AST node
+ */
+function formatDefault(defaultNode) {
+  if (!defaultNode) return null;
+
+  switch (defaultNode.type) {
+    case 'string':
+    case 'numeric':
+    case 'integer':
+      return String(defaultNode.value);
+    case 'boolean':
+      return defaultNode.value ? 'TRUE' : 'FALSE';
+    case 'null':
+      return 'NULL';
+    case 'call':
+      // Function call like NOW(), gen_random_uuid()
+      return `${defaultNode.function.name}()`;
+    case 'constant':
+      return defaultNode.value;
+    default:
+      return 'DEFAULT';
+  }
+}
+
+/**
+ * Clean identifier (extract name from AST node)
  */
 function cleanIdentifier(identifier) {
-  let cleaned = identifier.trim().replace(/^"|"$/g, '');
-  // Handle schema.table format - take just the table name
-  if (cleaned.includes('.')) {
-    cleaned = cleaned.split('.').pop();
+  if (typeof identifier === 'string') {
+    return identifier;
   }
-  return cleaned;
-}
-
-/**
- * Normalize data type representation
- */
-function normalizeDataType(dataType) {
-  return dataType
-    .replace(/\s+/g, ' ')
-    .replace(/CHARACTER VARYING/i, 'VARCHAR')
-    .replace(/INTEGER/i, 'INT')
-    .replace(/BOOLEAN/i, 'BOOL')
-    .trim();
-}
-
-/**
- * Parse COMMENT ON TABLE and COMMENT ON COLUMN statements
- * PostgreSQL syntax:
- *   COMMENT ON TABLE table_name IS 'description';
- *   COMMENT ON COLUMN table_name.column_name IS 'description';
- */
-function parseCommentStatements(content, comments) {
-  // Match COMMENT ON TABLE
-  const tableCommentRegex = /COMMENT\s+ON\s+TABLE\s+(["\w.]+)\s+IS\s+(?:'([^']*(?:''[^']*)*)'|E'([^']*(?:\\'[^']*)*)')\s*;/gi;
-
-  let match;
-  while ((match = tableCommentRegex.exec(content)) !== null) {
-    const tableName = cleanIdentifier(match[1]);
-    // Handle both regular strings and escape strings (E'...')
-    let commentText = match[2] !== undefined ? match[2] : match[3];
-    // Unescape doubled single quotes and backslash escapes
-    commentText = commentText.replace(/''/g, "'").replace(/\\'/g, "'");
-    comments.tables[tableName] = commentText;
+  
+  if (identifier && identifier.name) {
+    return identifier.name;
   }
 
-  // Match COMMENT ON COLUMN
-  const columnCommentRegex = /COMMENT\s+ON\s+COLUMN\s+(["\w.]+)\.(["\w]+)\s+IS\s+(?:'([^']*(?:''[^']*)*)'|E'([^']*(?:\\'[^']*)*)')\s*;/gi;
-
-  while ((match = columnCommentRegex.exec(content)) !== null) {
-    const tableName = cleanIdentifier(match[1]);
-    const columnName = cleanIdentifier(match[2]);
-    let commentText = match[3] !== undefined ? match[3] : match[4];
-    commentText = commentText.replace(/''/g, "'").replace(/\\'/g, "'");
-    comments.columns[`${tableName}.${columnName}`] = commentText;
-  }
-}
-
-/**
- * Apply parsed comments to tables and columns in the schema
- */
-function applyComments(schema) {
-  for (const table of schema.tables) {
-    // Apply table comment
-    if (schema.comments.tables[table.name]) {
-      table.comment = schema.comments.tables[table.name];
-    }
-
-    // Apply column comments
-    for (const column of table.columns) {
-      const key = `${table.name}.${column.name}`;
-      if (schema.comments.columns[key]) {
-        column.comment = schema.comments.columns[key];
-      }
-    }
-  }
-
-  // Apply comments to enum types as well
-  for (const type of schema.types) {
-    if (schema.comments.tables[type.name]) {
-      type.comment = schema.comments.tables[type.name];
-    }
-  }
+  return 'unknown';
 }
 
 export default { parseAllFiles, parseDDL };
