@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -17,6 +17,8 @@ import { useSelection } from '../contexts/SelectionContext';
 import { useProjectSettings } from '../contexts/ProjectSettingsContext';
 import TableNode from './TableNode';
 import TypeNode from './TypeNode';
+import DiagramToolbar from './DiagramToolbar';
+import NodeContextMenu from './NodeContextMenu';
 import { generatePlantUML, generateSVGFromSchema } from '../services/ExportService';
 
 // Custom node types
@@ -48,14 +50,19 @@ function calculateTypeHeight(type) {
 
 /**
  * Apply dagre layout with dynamic node heights
+ * @param {Array} nodes - React Flow nodes
+ * @param {Array} edges - React Flow edges
+ * @param {Object} schema - Parsed schema
+ * @param {string} direction - Layout direction: 'LR', 'TB', 'RL', 'BT'
+ * @param {Object} collapsedNodes - Map of collapsed node IDs
  */
-function getLayoutedElements(nodes, edges, schema) {
+function getLayoutedElements(nodes, edges, schema, direction = 'LR', collapsedNodes = {}) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
 
   // Configure graph with better spacing for complex schemas
   dagreGraph.setGraph({
-    rankdir: 'LR',      // Left to right layout
+    rankdir: direction,
     nodesep: 60,        // Vertical spacing between nodes
     ranksep: 120,       // Horizontal spacing between ranks
     marginx: 20,
@@ -109,17 +116,38 @@ function getLayoutedElements(nodes, edges, schema) {
   return { nodes: layoutedNodes, edges };
 }
 
-function SchemaViewInner({ onTableSelect }) {
+function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
   const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
-  const { fitView, setCenter } = useReactFlow();
+  const { fitView, setCenter, getNodes } = useReactFlow();
   const nodePositionsRef = useRef({});
   const prevSelectedTableRef = useRef(null);
   const isInitialLayoutRef = useRef(true);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  // Diagram enhancement state
+  const [collapsedNodes, setCollapsedNodes] = useState({});
+  const [filterQuery, setFilterQuery] = useState('');
+  const [layoutDirection, setLayoutDirection] = useState('LR');
+  const [showMinimap, setShowMinimap] = useState(true);
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, node }
+
+  // Toggle collapse for a specific node
+  const handleToggleCollapse = useCallback((nodeId) => {
+    setCollapsedNodes(prev => ({
+      ...prev,
+      [nodeId]: !prev[nodeId],
+    }));
+  }, []);
+
+  // Check if a node matches the filter
+  const matchesFilter = useCallback((name) => {
+    if (!filterQuery) return null; // null means no filtering active
+    return name.toLowerCase().includes(filterQuery.toLowerCase());
+  }, [filterQuery]);
 
   // Convert schema to React Flow nodes and edges
   const { schemaNodes, schemaEdges } = useMemo(() => {
@@ -135,6 +163,9 @@ function SchemaViewInner({ onTableSelect }) {
         data: {
           table,
           isSelected: selectedTable === table.name,
+          isCollapsed: collapsedNodes[table.name] || false,
+          isFiltered: matchesFilter(table.name),
+          onToggleCollapse: handleToggleCollapse,
         },
       });
 
@@ -166,13 +197,16 @@ function SchemaViewInner({ onTableSelect }) {
         position: { x: 0, y: 0 }, // Will be set by dagre
         data: {
           type,
-          isSelected: false, // TODO: add type selection support
+          isSelected: false,
+          isCollapsed: collapsedNodes[type.name] || false,
+          isFiltered: matchesFilter(type.name),
+          onToggleCollapse: handleToggleCollapse,
         },
       });
     });
 
     return { schemaNodes, schemaEdges };
-  }, [schema, selectedTable]);
+  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse]);
 
   // Apply layout when schema changes
   useEffect(() => {
@@ -191,7 +225,7 @@ function SchemaViewInner({ onTableSelect }) {
         console.log('[SchemaView] Applied saved positions');
       } else {
         // Use dagre layout for new/changed schema
-        const result = getLayoutedElements(schemaNodes, schemaEdges, schema);
+        const result = getLayoutedElements(schemaNodes, schemaEdges, schema, layoutDirection, collapsedNodes);
         layoutedNodes = result.nodes;
         console.log('[SchemaView] Applied dagre layout');
       }
@@ -212,7 +246,7 @@ function SchemaViewInner({ onTableSelect }) {
       nodePositionsRef.current = {};
       isInitialLayoutRef.current = true;
     }
-  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded]);
+  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded, layoutDirection, collapsedNodes]);
 
   // Focus on selected table when selection changes
   useEffect(() => {
@@ -302,6 +336,9 @@ function SchemaViewInner({ onTableSelect }) {
 
   // Handle node click - select table and notify parent
   const onNodeClick = useCallback((event, node) => {
+    // Close context menu if open
+    setContextMenu(null);
+
     selectTable(node.id);
 
     // Find the table and notify parent to highlight in file tree
@@ -310,6 +347,147 @@ function SchemaViewInner({ onTableSelect }) {
       onTableSelect(table.name, table.sourceFile);
     }
   }, [selectTable, schema, onTableSelect]);
+
+  // Handle right-click context menu
+  const onNodeContextMenu = useCallback((event, node) => {
+    event.preventDefault();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      node,
+    });
+  }, []);
+
+  // Close context menu
+  const handleCloseContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // Context menu: Go to Definition
+  const handleGoToDefinition = useCallback(() => {
+    if (!contextMenu?.node) return;
+    const nodeId = contextMenu.node.id;
+    const table = schema.tables.find(t => t.name === nodeId);
+    const type = schema.types.find(t => t.name === nodeId);
+
+    if (table && onGoToDefinition) {
+      onGoToDefinition(table.name, table.sourceFile);
+    } else if (type && onGoToDefinition) {
+      onGoToDefinition(type.name, type.sourceFile);
+    }
+  }, [contextMenu, schema, onGoToDefinition]);
+
+  // Context menu: Find Usages
+  const handleFindUsages = useCallback(() => {
+    if (!contextMenu?.node) return;
+    const nodeId = contextMenu.node.id;
+    if (onFindUsages) {
+      onFindUsages(nodeId);
+    }
+  }, [contextMenu, onFindUsages]);
+
+  // Context menu: Toggle Collapse
+  const handleContextToggleCollapse = useCallback(() => {
+    if (!contextMenu?.node) return;
+    handleToggleCollapse(contextMenu.node.id);
+  }, [contextMenu, handleToggleCollapse]);
+
+  // Context menu: Center on Node
+  const handleCenterOnNode = useCallback(() => {
+    if (!contextMenu?.node) return;
+    const node = nodes.find(n => n.id === contextMenu.node.id);
+    if (node && node.position) {
+      let height, width;
+      if (node.type === 'type') {
+        const type = schema.types.find(t => t.name === node.id);
+        height = type ? calculateTypeHeight(type) : 100;
+        width = TYPE_NODE_WIDTH;
+      } else {
+        const table = schema.tables.find(t => t.name === node.id);
+        height = table ? calculateNodeHeight(table) : 150;
+        width = NODE_WIDTH;
+      }
+      const centerX = node.position.x + width / 2;
+      const centerY = node.position.y + height / 2;
+      setCenter(centerX, centerY, { zoom: 1.2, duration: 400 });
+    }
+  }, [contextMenu, nodes, schema, setCenter]);
+
+  // Context menu: Copy Name
+  const handleCopyName = useCallback(() => {
+    if (!contextMenu?.node) return;
+    navigator.clipboard.writeText(contextMenu.node.id);
+  }, [contextMenu]);
+
+  // Toolbar: Search/filter
+  const handleSearch = useCallback((query) => {
+    setFilterQuery(query);
+  }, []);
+
+  // Toolbar: Layout change
+  const handleLayoutChange = useCallback((direction) => {
+    setLayoutDirection(direction);
+    // Force re-layout by clearing saved positions temporarily
+    const result = getLayoutedElements(schemaNodes, schemaEdges, schema, direction, collapsedNodes);
+    setNodes(result.nodes);
+
+    // Update positions ref and save
+    const positions = {};
+    result.nodes.forEach(node => {
+      positions[node.id] = node.position;
+    });
+    nodePositionsRef.current = positions;
+    updateNodePositions(positions);
+  }, [schemaNodes, schemaEdges, schema, collapsedNodes, setNodes, updateNodePositions]);
+
+  // Toolbar: Reset layout
+  const handleResetLayout = useCallback(() => {
+    const result = getLayoutedElements(schemaNodes, schemaEdges, schema, layoutDirection, collapsedNodes);
+    setNodes(result.nodes);
+
+    // Update positions ref and save
+    const positions = {};
+    result.nodes.forEach(node => {
+      positions[node.id] = node.position;
+    });
+    nodePositionsRef.current = positions;
+    updateNodePositions(positions);
+
+    // Fit view after layout
+    setTimeout(() => fitView({ padding: 0.2, duration: 200 }), 50);
+  }, [schemaNodes, schemaEdges, schema, layoutDirection, collapsedNodes, setNodes, updateNodePositions, fitView]);
+
+  // Toolbar: Toggle minimap
+  const handleToggleMinimap = useCallback(() => {
+    setShowMinimap(prev => !prev);
+  }, []);
+
+  // Toolbar: Collapse/expand all
+  const handleToggleAllCollapsed = useCallback(() => {
+    const allIds = [...schema.tables.map(t => t.name), ...schema.types.map(t => t.name)];
+    const allCollapsed = allIds.every(id => collapsedNodes[id]);
+
+    if (allCollapsed) {
+      // Expand all
+      setCollapsedNodes({});
+    } else {
+      // Collapse all
+      const newCollapsed = {};
+      allIds.forEach(id => { newCollapsed[id] = true; });
+      setCollapsedNodes(newCollapsed);
+    }
+  }, [schema, collapsedNodes]);
+
+  // Check if all nodes are collapsed
+  const allNodesCollapsed = useMemo(() => {
+    const allIds = [...schema.tables.map(t => t.name), ...schema.types.map(t => t.name)];
+    return allIds.length > 0 && allIds.every(id => collapsedNodes[id]);
+  }, [schema, collapsedNodes]);
+
+  // Handle pane click to close context menu
+  const onPaneClick = useCallback(() => {
+    setContextMenu(null);
+  }, []);
 
   if (isLoading) {
     return (
@@ -340,34 +518,74 @@ function SchemaViewInner({ onTableSelect }) {
   }
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={handleNodesChange}
-      onEdgesChange={onEdgesChange}
-      onNodeClick={onNodeClick}
-      nodeTypes={nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.2 }}
-      minZoom={0.1}
-      maxZoom={2}
-      defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-    >
-      <Background color="#333" gap={20} />
-      <Controls />
-      <MiniMap
-        nodeColor={(node) => node.id === selectedTable ? '#f5c518' : '#0e639c'}
-        maskColor="rgba(0, 0, 0, 0.8)"
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <DiagramToolbar
+        onSearch={handleSearch}
+        onLayoutChange={handleLayoutChange}
+        onResetLayout={handleResetLayout}
+        onToggleMinimap={handleToggleMinimap}
+        onToggleCollapsed={handleToggleAllCollapsed}
+        currentLayout={layoutDirection}
+        showMinimap={showMinimap}
+        allCollapsed={allNodesCollapsed}
+        tableCount={schema.tables.length}
+        typeCount={schema.types.length}
       />
-    </ReactFlow>
+      <div style={{ flex: 1, position: 'relative' }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={onPaneClick}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.1}
+          maxZoom={2}
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        >
+          <Background color="#333" gap={20} />
+          <Controls />
+          {showMinimap && (
+            <MiniMap
+              nodeColor={(node) => node.id === selectedTable ? '#f5c518' : '#0e639c'}
+              maskColor="rgba(0, 0, 0, 0.8)"
+            />
+          )}
+        </ReactFlow>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <NodeContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            node={contextMenu.node}
+            isCollapsed={collapsedNodes[contextMenu.node?.id]}
+            onClose={handleCloseContextMenu}
+            onGoToDefinition={handleGoToDefinition}
+            onFindUsages={handleFindUsages}
+            onToggleCollapse={handleContextToggleCollapse}
+            onCenterOnNode={handleCenterOnNode}
+            onCopyName={handleCopyName}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
 // Wrapper component that provides ReactFlow context
-function SchemaView({ onTableSelect }) {
+function SchemaView({ onTableSelect, onGoToDefinition, onFindUsages }) {
   return (
     <ReactFlowProvider>
-      <SchemaViewInner onTableSelect={onTableSelect} />
+      <SchemaViewInner
+        onTableSelect={onTableSelect}
+        onGoToDefinition={onGoToDefinition}
+        onFindUsages={onFindUsages}
+      />
     </ReactFlowProvider>
   );
 }

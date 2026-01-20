@@ -44,6 +44,14 @@
 - [x] Markdown file support in file tree (prominent yellow icon)
 - [x] Markdown preview in editor tabs
 
+### Diagram Enhancements
+- [x] Search/filter to highlight specific tables (toolbar filter with dimming)
+- [x] Collapse/expand table nodes (click header or context menu)
+- [x] Right-click context menu on nodes (Go to Definition, Find Usages, Collapse, Center, Copy Name)
+- [x] Minimap toggle (toolbar button)
+- [x] Different layout directions (LR, TB, RL, BT via toolbar dropdown)
+- [x] Reset layout button (re-run auto-layout)
+
 ---
 
 ## Planned Features
@@ -55,13 +63,8 @@
 - [ ] Naming convention checker (e.g., FK columns should end with `_id`)
 - [ ] Warning for tables without primary key
 
-### Diagram Enhancements
-- [ ] Search/filter to highlight specific tables
+### Diagram Enhancements (Remaining)
 - [ ] Group tables by folder or naming prefix
-- [ ] Collapse/expand table nodes
-- [ ] Right-click context menu on nodes
-- [ ] Minimap toggle
-- [ ] Different layout algorithms (hierarchical, force-directed)
 
 ### Persistence & Settings
 - [ ] User preferences dialog

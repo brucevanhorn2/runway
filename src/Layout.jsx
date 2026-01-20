@@ -216,6 +216,23 @@ function LayoutInner() {
     }
   }, [selectedTable, schema, openFile]);
 
+  // Handle go to definition from context menu (with specific table name)
+  const handleGoToDefinitionForTable = useCallback((tableName, sourceFile) => {
+    if (sourceFile) {
+      openFile(sourceFile, sourceFile.split('/').pop());
+      setHighlightedFile(sourceFile);
+    }
+  }, [openFile]);
+
+  // Handle find usages from context menu (with specific table name)
+  const handleFindUsagesForTable = useCallback((tableName) => {
+    if (tableName) {
+      setFindUsagesTable(tableName);
+      setShowFindUsages(true);
+      setShowSearch(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (window.electron) {
       window.electron.onFolderOpened(handleFolderOpened);
@@ -370,7 +387,11 @@ function LayoutInner() {
                   <span>Schema Diagram</span>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden', background: '#1e1e1e' }}>
-                  <SchemaView onTableSelect={handleTableSelect} />
+                  <SchemaView
+                    onTableSelect={handleTableSelect}
+                    onGoToDefinition={handleGoToDefinitionForTable}
+                    onFindUsages={handleFindUsagesForTable}
+                  />
                 </div>
               </Splitter.Pane>
 
