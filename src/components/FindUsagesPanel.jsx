@@ -150,7 +150,7 @@ function FindUsagesPanel({ tableName, folderPath, onClose }) {
       if (part.toLowerCase() === tableName.toLowerCase()) {
         return <span key={index} style={styles.matchHighlight}>{part}</span>;
       }
-      return part;
+      return <span key={index}>{part}</span>;
     });
   };
 

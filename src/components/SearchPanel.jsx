@@ -163,7 +163,7 @@ function SearchPanel({ files, folderPath, onClose }) {
       if (part.toLowerCase() === searchQuery.toLowerCase()) {
         return <span key={index} style={styles.matchHighlight}>{part}</span>;
       }
-      return part;
+      return <span key={index}>{part}</span>;
     });
   };
 

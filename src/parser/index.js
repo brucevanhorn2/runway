@@ -161,17 +161,48 @@ function parseSequences(content, sourceFile) {
 function parseTables(content, sourceFile) {
   const tables = [];
 
-  // Match CREATE TABLE with its body - handle optional semicolon at end
-  // Use a more robust pattern that matches the full table definition
-  const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)\s*\(([\s\S]*?)\)(?:\s*;|\s*$|(?=\s*CREATE))/gim;
-
+  // Split content by CREATE TABLE to handle each table separately
+  // This avoids complex nested parenthesis matching in regex
+  const createTablePattern = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w.]+)\s*\(/gi;
+  
   let match;
-  while ((match = tableRegex.exec(content)) !== null) {
-    const tableName = cleanIdentifier(match[1]);
-    const bodyContent = match[2];
-
+  const tableStarts = [];
+  
+  while ((match = createTablePattern.exec(content)) !== null) {
+    tableStarts.push({
+      name: cleanIdentifier(match[1]),
+      start: match.index,
+      openParenPos: match.index + match[0].length - 1,
+    });
+  }
+  
+  // For each table, find its body by matching parentheses
+  for (let i = 0; i < tableStarts.length; i++) {
+    const tableInfo = tableStarts[i];
+    const searchStart = tableInfo.openParenPos + 1;
+    const searchEnd = i < tableStarts.length - 1 ? tableStarts[i + 1].start : content.length;
+    
+    // Find matching closing parenthesis
+    let depth = 1;
+    let bodyEnd = -1;
+    
+    for (let j = searchStart; j < searchEnd && depth > 0; j++) {
+      if (content[j] === '(') depth++;
+      else if (content[j] === ')') {
+        depth--;
+        if (depth === 0) {
+          bodyEnd = j;
+          break;
+        }
+      }
+    }
+    
+    if (bodyEnd === -1) continue;
+    
+    const bodyContent = content.substring(searchStart, bodyEnd);
+    
     const table = {
-      name: tableName,
+      name: tableInfo.name,
       columns: [],
       primaryKey: [],
       foreignKeys: [],
