@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Input, List, Typography, Tag, Empty, Spin } from 'antd';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Typography, Tag, Empty, Spin } from 'antd';
 import { LinkOutlined, TableOutlined, CloseOutlined } from '@ant-design/icons';
 import { useEditor } from '../contexts/EditorContext';
 import { useSchema } from '../contexts/SchemaContext';

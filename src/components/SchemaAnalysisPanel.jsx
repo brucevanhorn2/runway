@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { List, Tag, Empty, Tooltip, Badge, Collapse } from 'antd';
+import { Tag, Empty, Tooltip, Badge, Collapse } from 'antd';
 import {
   CloseOutlined,
   WarningOutlined,

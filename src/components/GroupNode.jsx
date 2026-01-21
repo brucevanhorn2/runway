@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { FolderOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { FolderOpenOutlined } from '@ant-design/icons';
 
 // Color palette for groups (will cycle through these)
 const GROUP_COLORS = [
@@ -26,8 +26,8 @@ export function getGroupColor(groupName) {
   return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length];
 }
 
-const GroupNode = memo(({ data, selected }) => {
-  const { label, tableCount, typeCount, isCollapsed, colorIndex } = data;
+const GroupNode = memo(({ data }) => {
+  const { label, tableCount, typeCount, colorIndex } = data;
   const colors = GROUP_COLORS[colorIndex % GROUP_COLORS.length];
 
   return (

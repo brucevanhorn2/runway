@@ -270,6 +270,7 @@ function SqlTabs() {
     setActiveFilePath,
     closeFile,
     updateFileContent,
+    saveFile,
     openFile,
   } = useEditor();
 
@@ -472,6 +473,22 @@ function SqlTabs() {
     // Apply initial decorations
     applyDecorations(editor, monaco, content || '');
 
+    // Add save action (Cmd+S / Ctrl+S)
+    editor.addAction({
+      id: 'save-file',
+      label: 'Save File',
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+      ],
+      run: async () => {
+        // Format on save if preference is enabled
+        if (preferences.editor.formatOnSave) {
+          await editor.getAction('editor.action.formatDocument')?.run();
+        }
+        await saveFile(filePath);
+      },
+    });
+
     // Handle link clicks - open the referenced file
     editor.onMouseDown((e) => {
       if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
@@ -491,7 +508,7 @@ function SqlTabs() {
         }
       }
     });
-  }, [registerLanguageFeatures, openFile]);
+  }, [registerLanguageFeatures, openFile, saveFile, preferences.editor.formatOnSave]);
 
   const handleClose = useCallback((e, filePath) => {
     e.stopPropagation();
@@ -531,9 +548,7 @@ function SqlTabs() {
           language="sql"
           theme="vs-dark"
           value={file.content}
-          onChange={(value, event) => {
-            // Get the editor instance from the event
-            const editor = event?.changes?.[0]?.range ? null : null;
+          onChange={(value) => {
             handleEditorChange(value, file.path, null);
           }}
           onMount={(editor, monaco) => {

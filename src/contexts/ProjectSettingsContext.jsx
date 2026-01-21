@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 const ProjectSettingsContext = createContext(null);
 
@@ -29,9 +29,6 @@ export function ProjectSettingsProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Track if we have unsaved changes
-  const pendingSaveRef = useRef(null);
-
   // Save settings to disk (debounced)
   const saveSettingsToDisk = useCallback(async (path, settingsToSave) => {
     if (!path || !window.electron) return;
@@ -44,13 +41,14 @@ export function ProjectSettingsProvider({ children }) {
     }
   }, []);
 
-  // Create debounced save function
-  const debouncedSave = useCallback(
-    debounce((path, settingsToSave) => {
+  // Create debounced save function using ref to avoid exhaustive-deps warning
+  const debouncedSaveRef = useRef(null);
+  if (!debouncedSaveRef.current) {
+    debouncedSaveRef.current = debounce((path, settingsToSave) => {
       saveSettingsToDisk(path, settingsToSave);
-    }, 500),
-    [saveSettingsToDisk]
-  );
+    }, 500);
+  }
+  const debouncedSave = debouncedSaveRef.current;
 
   // Load settings when folder changes
   const loadSettings = useCallback(async (newFolderPath) => {

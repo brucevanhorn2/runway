@@ -223,6 +223,15 @@ const createMenu = () => {
           },
         },
         {
+          id: 'save-file',
+          label: 'Save',
+          accelerator: 'CmdOrCtrl+S',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('save-file');
+          },
+        },
+        {
           type: 'separator',
         },
         {
@@ -380,6 +389,7 @@ function updateMenuState() {
   const hasFolderOpen = currentFolderPath !== null;
 
   const newFileItem = menu.getMenuItemById('new-sql-file');
+  const saveFileItem = menu.getMenuItemById('save-file');
   const exportSvgItem = menu.getMenuItemById('export-svg');
   const exportPlantumlItem = menu.getMenuItemById('export-plantuml');
   const exportMarkdownDocsItem = menu.getMenuItemById('export-markdown-docs');
@@ -390,6 +400,7 @@ function updateMenuState() {
   const schemaAnalysisItem = menu.getMenuItemById('schema-analysis');
 
   if (newFileItem) newFileItem.enabled = hasFolderOpen;
+  if (saveFileItem) saveFileItem.enabled = hasFolderOpen;
   if (exportSvgItem) exportSvgItem.enabled = hasFolderOpen;
   if (exportPlantumlItem) exportPlantumlItem.enabled = hasFolderOpen;
   if (exportMarkdownDocsItem) exportMarkdownDocsItem.enabled = hasFolderOpen;
@@ -931,7 +942,7 @@ app.on('ready', () => {
         await fs.access(settings.lastOpenedFolder);
         await openFolder(settings.lastOpenedFolder);
         console.log('[Main] Auto-opened last folder:', settings.lastOpenedFolder);
-      } catch (error) {
+      } catch (_error) {
         console.log('[Main] Last folder no longer exists:', settings.lastOpenedFolder);
       }
     }

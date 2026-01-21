@@ -36,7 +36,7 @@ export function EditorProvider({ children }) {
 
     // If we closed the active file, switch to another one
     if (activeFilePath === filePath) {
-      setActiveFilePath(prev => {
+      setActiveFilePath(() => {
         const remaining = openFiles.filter(f => f.path !== filePath);
         return remaining.length > 0 ? remaining[remaining.length - 1].path : null;
       });

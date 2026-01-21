@@ -8,6 +8,8 @@ import ReactFlow, {
   useReactFlow,
   ReactFlowProvider,
   MarkerType,
+  SelectionMode,
+  useOnSelectionChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -232,7 +234,7 @@ function layoutGroupContents(tables, types, schema, direction, collapsedNodes) {
  * @param {string} direction - Layout direction: 'LR', 'TB', 'RL', 'BT'
  * @param {Object} collapsedNodes - Map of collapsed node IDs
  */
-function getLayoutedElements(nodes, edges, schema, direction = 'LR', collapsedNodes = {}) {
+function getLayoutedElements(nodes, edges, schema, direction = 'LR', _collapsedNodes = {}) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
 
@@ -440,7 +442,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   const { selectTable, selectedTable } = useSelection();
   const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
   const { preferences } = useUserPreferences();
-  const { fitView, setCenter, getNodes } = useReactFlow();
+  const { fitView, setCenter } = useReactFlow();
   const nodePositionsRef = useRef({});
   const prevSelectedTableRef = useRef(null);
   const isInitialLayoutRef = useRef(true);
@@ -456,6 +458,16 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   const [showMinimap, setShowMinimap] = useState(preferences.diagram.showMinimap);
   const [groupByFolder, setGroupByFolder] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, node }
+  const [selectedNodes, setSelectedNodes] = useState([]); // Track selected nodes for alignment
+
+  // Track selection changes for alignment tools
+  useOnSelectionChange({
+    onChange: ({ nodes }) => {
+      // Filter out group nodes from selection (can't align groups)
+      const selectableNodes = nodes.filter(n => n.type !== 'group');
+      setSelectedNodes(selectableNodes);
+    },
+  });
 
   // Update state when preferences change (only on initial load)
   useEffect(() => {
@@ -870,6 +882,134 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     return allIds.length > 0 && allIds.every(id => collapsedNodes[id]);
   }, [schema, collapsedNodes]);
 
+  // Helper to get node dimensions
+  const getNodeDimensions = useCallback((nodeId) => {
+    const table = schema.tables.find(t => t.name === nodeId);
+    const type = schema.types.find(t => t.name === nodeId);
+    if (type) {
+      return { width: TYPE_NODE_WIDTH, height: calculateTypeHeight(type) };
+    }
+    if (table) {
+      return { width: NODE_WIDTH, height: calculateNodeHeight(table) };
+    }
+    return { width: NODE_WIDTH, height: 150 };
+  }, [schema]);
+
+  // Alignment functions
+  const handleAlign = useCallback((alignment) => {
+    if (selectedNodes.length < 2) return;
+
+    // Get current node positions and dimensions
+    const nodeData = selectedNodes.map(node => {
+      const currentNode = nodes.find(n => n.id === node.id);
+      const dims = getNodeDimensions(node.id);
+      return {
+        id: node.id,
+        x: currentNode?.position?.x || 0,
+        y: currentNode?.position?.y || 0,
+        width: dims.width,
+        height: dims.height,
+      };
+    });
+
+    // Calculate new positions based on alignment
+    const newPositions = {};
+
+    switch (alignment) {
+      case 'left': {
+        const minX = Math.min(...nodeData.map(n => n.x));
+        nodeData.forEach(n => { newPositions[n.id] = { x: minX, y: n.y }; });
+        break;
+      }
+      case 'right': {
+        const maxRight = Math.max(...nodeData.map(n => n.x + n.width));
+        nodeData.forEach(n => { newPositions[n.id] = { x: maxRight - n.width, y: n.y }; });
+        break;
+      }
+      case 'top': {
+        const minY = Math.min(...nodeData.map(n => n.y));
+        nodeData.forEach(n => { newPositions[n.id] = { x: n.x, y: minY }; });
+        break;
+      }
+      case 'bottom': {
+        const maxBottom = Math.max(...nodeData.map(n => n.y + n.height));
+        nodeData.forEach(n => { newPositions[n.id] = { x: n.x, y: maxBottom - n.height }; });
+        break;
+      }
+      case 'centerH': {
+        // Align centers horizontally (same X center)
+        const avgCenterX = nodeData.reduce((sum, n) => sum + n.x + n.width / 2, 0) / nodeData.length;
+        nodeData.forEach(n => { newPositions[n.id] = { x: avgCenterX - n.width / 2, y: n.y }; });
+        break;
+      }
+      case 'centerV': {
+        // Align centers vertically (same Y center)
+        const avgCenterY = nodeData.reduce((sum, n) => sum + n.y + n.height / 2, 0) / nodeData.length;
+        nodeData.forEach(n => { newPositions[n.id] = { x: n.x, y: avgCenterY - n.height / 2 }; });
+        break;
+      }
+      case 'distributeH': {
+        // Distribute horizontally with equal spacing
+        if (nodeData.length < 3) return;
+        const sorted = [...nodeData].sort((a, b) => a.x - b.x);
+        const totalWidth = sorted.reduce((sum, n) => sum + n.width, 0);
+        const leftmost = sorted[0].x;
+        const rightmost = sorted[sorted.length - 1].x + sorted[sorted.length - 1].width;
+        const totalSpace = rightmost - leftmost - totalWidth;
+        const gap = totalSpace / (sorted.length - 1);
+
+        let currentX = leftmost;
+        sorted.forEach((n) => {
+          newPositions[n.id] = { x: currentX, y: n.y };
+          currentX += n.width + gap;
+        });
+        break;
+      }
+      case 'distributeV': {
+        // Distribute vertically with equal spacing
+        if (nodeData.length < 3) return;
+        const sorted = [...nodeData].sort((a, b) => a.y - b.y);
+        const totalHeight = sorted.reduce((sum, n) => sum + n.height, 0);
+        const topmost = sorted[0].y;
+        const bottommost = sorted[sorted.length - 1].y + sorted[sorted.length - 1].height;
+        const totalSpace = bottommost - topmost - totalHeight;
+        const gap = totalSpace / (sorted.length - 1);
+
+        let currentY = topmost;
+        sorted.forEach((n) => {
+          newPositions[n.id] = { x: n.x, y: currentY };
+          currentY += n.height + gap;
+        });
+        break;
+      }
+    }
+
+    // Apply new positions to nodes
+    setNodes(currentNodes =>
+      currentNodes.map(node => {
+        if (newPositions[node.id]) {
+          return { ...node, position: newPositions[node.id] };
+        }
+        return node;
+      })
+    );
+
+    // Save positions
+    setTimeout(() => {
+      setNodes(currentNodes => {
+        const positions = {};
+        currentNodes.forEach(node => {
+          if (node.type !== 'group') {
+            positions[node.id] = node.position;
+          }
+        });
+        nodePositionsRef.current = positions;
+        updateNodePositions(positions);
+        return currentNodes;
+      });
+    }, 0);
+  }, [selectedNodes, nodes, getNodeDimensions, setNodes, updateNodePositions]);
+
   // Handle pane click to close context menu
   const onPaneClick = useCallback(() => {
     setContextMenu(null);
@@ -912,12 +1052,14 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
         onToggleMinimap={handleToggleMinimap}
         onToggleCollapsed={handleToggleAllCollapsed}
         onToggleGroupByFolder={handleToggleGroupByFolder}
+        onAlign={handleAlign}
         currentLayout={layoutDirection}
         showMinimap={showMinimap}
         allCollapsed={allNodesCollapsed}
         groupByFolder={groupByFolder}
         tableCount={schema.tables.length}
         typeCount={schema.types.length}
+        selectedCount={selectedNodes.length}
       />
       <div style={{ flex: 1, position: 'relative' }}>
         <ReactFlow
@@ -934,6 +1076,10 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
           minZoom={0.1}
           maxZoom={2}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          selectionOnDrag={true}
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={[1, 2]}
+          selectNodesOnDrag={true}
         >
           <Background color="#333" gap={20} />
           <Controls />

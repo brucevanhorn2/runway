@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Layout as AntLayout, Splitter } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined, CloseOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined } from '@ant-design/icons';
 import FileTree from './components/FileTree';
 import SchemaView from './components/SchemaView';
 import SqlTabs from './components/SqlTabs';
@@ -38,7 +38,7 @@ function LayoutInner() {
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
-  const { openFile } = useEditor();
+  const { openFile, saveFile, activeFilePath } = useEditor();
   const { settings, loadSettings, updateSplitterSizes, isLoaded } = useProjectSettings();
   const { selectedTable } = useSelection();
 
@@ -251,6 +251,13 @@ function LayoutInner() {
     setShowPreferences(false);
   }, []);
 
+  // Handle save file (from menu)
+  const handleSaveFile = useCallback(async () => {
+    if (activeFilePath) {
+      await saveFile(activeFilePath);
+    }
+  }, [activeFilePath, saveFile]);
+
   // Handle analyze schema
   const handleAnalyzeSchema = useCallback(() => {
     setShowAnalysisPanel(true);
@@ -291,8 +298,9 @@ function LayoutInner() {
       window.electron.onGoToDefinition(handleGoToDefinition);
       window.electron.onOpenPreferences(handleOpenPreferences);
       window.electron.onAnalyzeSchema(handleAnalyzeSchema);
+      window.electron.onSaveFile(handleSaveFile);
     }
-  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema, handleSaveFile]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>

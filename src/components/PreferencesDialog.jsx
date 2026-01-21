@@ -25,7 +25,7 @@ const WORD_WRAP_OPTIONS = [
 ];
 
 function PreferencesDialog({ open, onClose }) {
-  const { preferences, updatePreferences, resetToDefaults, DEFAULT_PREFERENCES } = useUserPreferences();
+  const { preferences, updatePreferences, resetToDefaults } = useUserPreferences();
   const [activeTab, setActiveTab] = useState('editor');
 
   // Editor preference handlers

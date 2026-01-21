@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Input, List, Typography, Tag, Empty } from 'antd';
+import { Input, Typography, Tag, Empty } from 'antd';
 import { SearchOutlined, FileOutlined, TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useEditor } from '../contexts/EditorContext';
 import { useSchema } from '../contexts/SchemaContext';

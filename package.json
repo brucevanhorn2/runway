@@ -1,6 +1,6 @@
 {
   "name": "runway",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "PostgreSQL DDL Visualizer - Schema modeling with plain SQL",
   "main": "src/main.js",
   "dependencies": {
@@ -20,12 +20,17 @@
     "@babel/core": "^7.28.5",
     "@babel/preset-env": "^7.28.5",
     "@babel/preset-react": "^7.28.5",
+    "@eslint/js": "^9.39.2",
     "babel-loader": "^10.0.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "css-loader": "^7.1.2",
     "electron": "^27.0.0",
     "electron-builder": "^26.4.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^17.0.0",
     "html-webpack-plugin": "^5.6.5",
     "monaco-editor-webpack-plugin": "^7.1.1",
     "style-loader": "^4.0.0",
@@ -42,7 +47,9 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux"
+    "dist:linux": "npm run build && electron-builder --linux",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
   },
   "build": {
     "appId": "com.runway.app",

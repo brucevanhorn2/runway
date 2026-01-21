@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Input, Button, Dropdown, Tooltip, Switch } from 'antd';
+import React, { useState, useCallback, useRef } from 'react';
+import { Input, Button, Dropdown, Tooltip } from 'antd';
 import {
   SearchOutlined,
   ColumnWidthOutlined,
@@ -12,6 +12,13 @@ import {
   ExpandOutlined,
   FolderOutlined,
   AppstoreOutlined,
+  AlignLeftOutlined,
+  AlignRightOutlined,
+  AlignCenterOutlined,
+  VerticalAlignTopOutlined,
+  VerticalAlignBottomOutlined,
+  VerticalAlignMiddleOutlined,
+  PicCenterOutlined,
 } from '@ant-design/icons';
 
 const styles = {
@@ -53,12 +60,14 @@ function DiagramToolbar({
   onToggleMinimap,
   onToggleCollapsed,
   onToggleGroupByFolder,
+  onAlign,
   currentLayout = 'LR',
   showMinimap = true,
   allCollapsed = false,
   groupByFolder = false,
   tableCount = 0,
   typeCount = 0,
+  selectedCount = 0,
 }) {
   const [searchValue, setSearchValue] = useState('');
   const searchInputRef = useRef(null);
@@ -175,6 +184,83 @@ function DiagramToolbar({
           style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
         />
       </Tooltip>
+
+      {/* Alignment tools - only show when 2+ nodes selected */}
+      {selectedCount >= 2 && (
+        <>
+          <div style={styles.divider} />
+          <span style={styles.label}>{selectedCount} selected</span>
+          <Tooltip title="Align Left">
+            <Button
+              size="small"
+              icon={<AlignLeftOutlined />}
+              onClick={() => onAlign?.('left')}
+              style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+            />
+          </Tooltip>
+          <Tooltip title="Align Center (Horizontal)">
+            <Button
+              size="small"
+              icon={<AlignCenterOutlined />}
+              onClick={() => onAlign?.('centerH')}
+              style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+            />
+          </Tooltip>
+          <Tooltip title="Align Right">
+            <Button
+              size="small"
+              icon={<AlignRightOutlined />}
+              onClick={() => onAlign?.('right')}
+              style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+            />
+          </Tooltip>
+          <Tooltip title="Align Top">
+            <Button
+              size="small"
+              icon={<VerticalAlignTopOutlined />}
+              onClick={() => onAlign?.('top')}
+              style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+            />
+          </Tooltip>
+          <Tooltip title="Align Middle (Vertical)">
+            <Button
+              size="small"
+              icon={<VerticalAlignMiddleOutlined />}
+              onClick={() => onAlign?.('centerV')}
+              style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+            />
+          </Tooltip>
+          <Tooltip title="Align Bottom">
+            <Button
+              size="small"
+              icon={<VerticalAlignBottomOutlined />}
+              onClick={() => onAlign?.('bottom')}
+              style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+            />
+          </Tooltip>
+          {selectedCount >= 3 && (
+            <>
+              <div style={styles.divider} />
+              <Tooltip title="Distribute Horizontally">
+                <Button
+                  size="small"
+                  icon={<PicCenterOutlined style={{ transform: 'rotate(90deg)' }} />}
+                  onClick={() => onAlign?.('distributeH')}
+                  style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+                />
+              </Tooltip>
+              <Tooltip title="Distribute Vertically">
+                <Button
+                  size="small"
+                  icon={<PicCenterOutlined />}
+                  onClick={() => onAlign?.('distributeV')}
+                  style={{ background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+                />
+              </Tooltip>
+            </>
+          )}
+        </>
+      )}
 
       <div style={{ flex: 1 }} />
 

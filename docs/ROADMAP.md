@@ -75,6 +75,19 @@
 - [x] Analysis panel with issues grouped by category (Structure, Relationships, Naming, Best Practices)
 - [x] Click-to-navigate from issues to source tables
 
+### Selection & Alignment Tools
+- [x] Marquee/box selection (drag to select multiple nodes)
+- [x] Pan with middle-mouse or right-click drag
+- [x] Alignment toolbar appears when 2+ nodes selected
+- [x] Align left, right, top, bottom, center horizontal, center vertical
+- [x] Distribute horizontally/vertically (3+ nodes)
+- [x] Positions saved after alignment
+
+### Editor Improvements
+- [x] Save file with Cmd+S (File > Save menu item)
+- [x] Format on save option in preferences
+- [x] Diagram auto-refreshes after save
+
 ---
 
 ## Planned Features

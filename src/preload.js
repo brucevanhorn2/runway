@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   saveFile: (filePath, content) => ipcRenderer.invoke('file:save', filePath, content),
 
+  onSaveFile: (callback) => {
+    ipcRenderer.on('save-file', callback);
+  },
+
   readAllFiles: (folderPath) => ipcRenderer.invoke('folder:read-all', folderPath),
 
   // ============================================================================

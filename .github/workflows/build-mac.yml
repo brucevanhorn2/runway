@@ -1,0 +1,72 @@
+name: Build macOS Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS app
+        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version from package.json
+        id: package-version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Runway-${{ steps.package-version.outputs.version }}-mac
+          path: release/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Runway-${{ steps.package-version.outputs.version }}-mac-zip
+          path: release/*.zip
+          if-no-files-found: warn
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: v${{ steps.package-version.outputs.version }}
+          name: Runway v${{ steps.package-version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            release/*.dmg
+            release/*.zip
+          body: |
+            ## Runway v${{ steps.package-version.outputs.version }}
+
+            ### Installation (macOS)
+            1. Download the `.dmg` file below
+            2. Open the DMG and drag Runway to Applications
+            3. On first launch, right-click the app and select "Open" (required for unsigned apps)
+
+            ### Changes
+            See [ROADMAP.md](https://github.com/${{ github.repository }}/blob/main/docs/ROADMAP.md) for the full feature list.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
