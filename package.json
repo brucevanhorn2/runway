@@ -84,15 +84,15 @@
       "iconSize": 100,
       "contents": [
         {
-          "x": 380,
-          "y": 280,
-          "type": "link",
-          "path": "/Applications"
+          "x": 250,
+          "y": 125,
+          "type": "file"
         },
         {
-          "x": 122,
-          "y": 280,
-          "type": "file"
+          "x": 410,
+          "y": 250,
+          "type": "link",
+          "path": "/Applications"
         }
       ],
       "window": {
