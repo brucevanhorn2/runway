@@ -67,16 +67,20 @@
 - [x] Documentation generation organized by package/folder
 - [x] Data dictionary includes package overview and breakdown
 
+### Schema Analysis & Validation (Cmd+Shift+A)
+- [x] Detect orphan tables (no relationships)
+- [x] Detect circular dependencies
+- [x] Naming convention checker (e.g., FK columns should end with `_id`, snake_case for tables/columns)
+- [x] Warning for tables without primary key
+- [x] Analysis panel with issues grouped by category (Structure, Relationships, Naming, Best Practices)
+- [x] Click-to-navigate from issues to source tables
+
 ---
 
 ## Planned Features
 
-### Schema Analysis & Validation
-- [ ] Detect orphan tables (no relationships)
-- [ ] Detect circular dependencies
-- [ ] Missing indexes on FK columns warning
-- [ ] Naming convention checker (e.g., FK columns should end with `_id`)
-- [ ] Warning for tables without primary key
+### Schema Analysis & Validation (Remaining)
+- [ ] Missing indexes on FK columns warning (requires CREATE INDEX parsing)
 
 ### Schema Diffing (Future)
 - [ ] Compare current schema to a git revision

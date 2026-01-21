@@ -325,6 +325,15 @@ const createMenu = () => {
             mainWindow.webContents.send('fit-diagram');
           },
         },
+        {
+          id: 'schema-analysis',
+          label: 'Analyze Schema',
+          accelerator: 'CmdOrCtrl+Shift+A',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('analyze-schema');
+          },
+        },
         { type: 'separator' },
         {
           id: 'search-files',
@@ -377,8 +386,8 @@ function updateMenuState() {
   const exportDataDictItem = menu.getMenuItemById('export-data-dictionary');
   const searchFilesItem = menu.getMenuItemById('search-files');
   const findUsagesItem = menu.getMenuItemById('find-usages');
-
   const goToDefItem = menu.getMenuItemById('go-to-definition');
+  const schemaAnalysisItem = menu.getMenuItemById('schema-analysis');
 
   if (newFileItem) newFileItem.enabled = hasFolderOpen;
   if (exportSvgItem) exportSvgItem.enabled = hasFolderOpen;
@@ -388,6 +397,7 @@ function updateMenuState() {
   if (searchFilesItem) searchFilesItem.enabled = hasFolderOpen;
   if (findUsagesItem) findUsagesItem.enabled = hasFolderOpen;
   if (goToDefItem) goToDefItem.enabled = hasFolderOpen;
+  if (schemaAnalysisItem) schemaAnalysisItem.enabled = hasFolderOpen;
 }
 
 /**

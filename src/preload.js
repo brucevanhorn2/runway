@@ -103,6 +103,10 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('go-to-definition', callback);
   },
 
+  onAnalyzeSchema: (callback) => {
+    ipcRenderer.on('analyze-schema', callback);
+  },
+
   // ============================================================================
   // USER PREFERENCES
   // ============================================================================

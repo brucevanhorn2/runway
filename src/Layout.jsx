@@ -6,6 +6,7 @@ import SchemaView from './components/SchemaView';
 import SqlTabs from './components/SqlTabs';
 import SearchPanel from './components/SearchPanel';
 import FindUsagesPanel from './components/FindUsagesPanel';
+import SchemaAnalysisPanel from './components/SchemaAnalysisPanel';
 import Breadcrumb from './components/Breadcrumb';
 import PreferencesDialog from './components/PreferencesDialog';
 import './Layout.css';
@@ -34,6 +35,7 @@ function LayoutInner() {
   const [showFindUsages, setShowFindUsages] = useState(false);
   const [findUsagesTable, setFindUsagesTable] = useState(null);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile } = useEditor();
@@ -186,6 +188,7 @@ function LayoutInner() {
   const handleToggleSearch = useCallback(() => {
     setShowSearch(prev => !prev);
     setShowFindUsages(false);
+    setShowAnalysisPanel(false);
   }, []);
 
   // Handle find usages
@@ -194,6 +197,7 @@ function LayoutInner() {
       setFindUsagesTable(selectedTable);
       setShowFindUsages(true);
       setShowSearch(false);
+      setShowAnalysisPanel(false);
     }
   }, [selectedTable]);
 
@@ -233,6 +237,7 @@ function LayoutInner() {
       setFindUsagesTable(tableName);
       setShowFindUsages(true);
       setShowSearch(false);
+      setShowAnalysisPanel(false);
     }
   }, []);
 
@@ -245,6 +250,32 @@ function LayoutInner() {
   const handleClosePreferences = useCallback(() => {
     setShowPreferences(false);
   }, []);
+
+  // Handle analyze schema
+  const handleAnalyzeSchema = useCallback(() => {
+    setShowAnalysisPanel(true);
+    setShowSearch(false);
+    setShowFindUsages(false);
+  }, []);
+
+  // Handle close analysis panel
+  const handleCloseAnalysisPanel = useCallback(() => {
+    setShowAnalysisPanel(false);
+  }, []);
+
+  // Handle navigate to table from analysis panel
+  const handleNavigateToTableFromAnalysis = useCallback((tableName, sourceFile) => {
+    if (tableName) {
+      selectTable(tableName);
+    }
+    if (sourceFile) {
+      setHighlightedFile(sourceFile);
+      const file = sqlFiles.find(f => f.path === sourceFile);
+      if (file) {
+        openFile(file.path, file.name);
+      }
+    }
+  }, [selectTable, sqlFiles, openFile]);
 
   useEffect(() => {
     if (window.electron) {
@@ -259,8 +290,9 @@ function LayoutInner() {
       window.electron.onFindUsages(handleFindUsages);
       window.electron.onGoToDefinition(handleGoToDefinition);
       window.electron.onOpenPreferences(handleOpenPreferences);
+      window.electron.onAnalyzeSchema(handleAnalyzeSchema);
     }
-  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>
@@ -329,6 +361,17 @@ function LayoutInner() {
                 tableName={findUsagesTable}
                 folderPath={openFolderPath}
                 onClose={handleCloseFindUsages}
+              />
+            </div>
+          )}
+
+          {/* Schema Analysis Panel - slides in from left */}
+          {showAnalysisPanel && (
+            <div style={{ width: '400px', borderRight: '1px solid #333', flexShrink: 0 }}>
+              <SchemaAnalysisPanel
+                schema={schema}
+                onClose={handleCloseAnalysisPanel}
+                onNavigateToTable={handleNavigateToTableFromAnalysis}
               />
             </div>
           )}
