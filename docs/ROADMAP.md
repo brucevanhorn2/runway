@@ -88,14 +88,33 @@
 - [x] Format on save option in preferences
 - [x] Diagram auto-refreshes after save
 
+### Spell Checking
+- [x] Spell checking in SQL comments and string literals (green underlines)
+- [x] Right-click context menu for spelling suggestions
+- [x] "Add to dictionary" option for custom words
+- [x] Hunspell dictionary support via Typo.js
+
+### SQL Linting
+- [x] Real-time syntax validation with dt-sql-parser
+- [x] Red underlines for syntax errors with precise positions
+- [x] Yellow underlines for best practice warnings
+- [x] PostgreSQL-specific warnings (SERIAL vs IDENTITY, TIMESTAMP vs TIMESTAMPTZ, etc.)
+
+### Schema Analysis (Extended)
+- [x] Missing indexes on FK columns warning
+- [x] CREATE INDEX parsing support
+
+### File Browser Enhancements
+- [x] Hierarchical folder tree display
+- [x] Auto-expand to highlighted file
+- [x] Right-click context menu (Reveal in Finder, Copy Path, Rename, Delete)
+- [x] New SQL File in folder option
+
 ---
 
 ## Planned Features
 
-### Schema Analysis & Validation (Remaining)
-- [ ] Missing indexes on FK columns warning (requires CREATE INDEX parsing)
-
-### Schema Diffing (Future)
+### Schema Diffing
 - [ ] Compare current schema to a git revision
 - [ ] Highlight added/removed/changed tables
 - [ ] Side-by-side diff view

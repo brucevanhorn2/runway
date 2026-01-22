@@ -995,6 +995,71 @@ const setupIPC = () => {
     return { success: true };
   });
 
+  // ============================================================================
+  // SPELL CHECKING
+  // ============================================================================
+
+  // Load dictionary file (aff or dic)
+  ipcMain.handle('spellcheck:load-dictionary', async (event, filename) => {
+    try {
+      // Try multiple paths to find the dictionary
+      const possiblePaths = [
+        // In development: node_modules
+        path.join(__dirname, '..', 'node_modules', 'typo-js', 'dictionaries', 'en_US', filename),
+        // In production: resources
+        path.join(process.resourcesPath, 'dictionaries', 'en_US', filename),
+        // Alternative production path
+        path.join(__dirname, 'dictionaries', 'en_US', filename),
+      ];
+
+      for (const dictPath of possiblePaths) {
+        try {
+          const content = await fs.readFile(dictPath, 'utf-8');
+          console.log(`[Main] Loaded dictionary file: ${dictPath}`);
+          return { success: true, content };
+        } catch (_e) {
+          // Try next path
+        }
+      }
+
+      throw new Error(`Dictionary file not found: ${filename}`);
+    } catch (error) {
+      console.error('[Main] Failed to load dictionary:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Load custom dictionary (user-added words)
+  ipcMain.handle('spellcheck:load-custom', async () => {
+    try {
+      const customDictPath = path.join(app.getPath('userData'), 'custom-dictionary.json');
+      const exists = await fs.access(customDictPath).then(() => true).catch(() => false);
+
+      if (!exists) {
+        return { words: [] };
+      }
+
+      const content = await fs.readFile(customDictPath, 'utf-8');
+      const data = JSON.parse(content);
+      return { words: data.words || [] };
+    } catch (error) {
+      console.error('[Main] Failed to load custom dictionary:', error);
+      return { words: [] };
+    }
+  });
+
+  // Save custom dictionary
+  ipcMain.handle('spellcheck:save-custom', async (event, words) => {
+    try {
+      const customDictPath = path.join(app.getPath('userData'), 'custom-dictionary.json');
+      await fs.writeFile(customDictPath, JSON.stringify({ words }, null, 2), 'utf-8');
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Failed to save custom dictionary:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   console.log('[Main] IPC handlers registered');
 };
 

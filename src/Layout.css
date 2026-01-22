@@ -274,3 +274,27 @@
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2358a6ff'%3E%3Cpath d='M4.5 3A1.5 1.5 0 0 0 3 4.5v1A1.5 1.5 0 0 0 4.5 7h2A1.5 1.5 0 0 0 8 5.5V5h2v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v1H8v-.5A1.5 1.5 0 0 0 6.5 3h-2zM4.5 9A1.5 1.5 0 0 0 3 10.5v1A1.5 1.5 0 0 0 4.5 13h2A1.5 1.5 0 0 0 8 11.5V11h2v1a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v1H8v-.5A1.5 1.5 0 0 0 6.5 9h-2z'/%3E%3C/svg%3E") center center no-repeat;
   background-size: 14px;
 }
+
+/* Spell check - green wavy underline (like JetBrains IDEs) */
+.spelling-error {
+  text-decoration: underline wavy #4caf50;
+  text-decoration-skip-ink: none;
+}
+
+/* Context menu styling for spell suggestions */
+.ant-dropdown-menu {
+  background: #252526 !important;
+  border: 1px solid #454545 !important;
+}
+
+.ant-dropdown-menu-item {
+  color: #d4d4d4 !important;
+}
+
+.ant-dropdown-menu-item:hover {
+  background: #094771 !important;
+}
+
+.ant-dropdown-menu-item-divider {
+  background: #454545 !important;
+}

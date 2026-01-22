@@ -1,14 +1,20 @@
-import React, { useCallback, useRef, useEffect } from 'react';
-import { Tabs } from 'antd';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
+import { Tabs, Dropdown } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
 import { useEditor } from '../contexts/EditorContext';
 import { useSchema } from '../contexts/SchemaContext';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import MarkdownPreview from './MarkdownPreview';
+import spellCheckService from '../services/SpellCheckService';
+import sqlLintService from '../services/SqlLintService';
 
 // Track editor instances and their decorations
 const editorRefs = new Map();
+// Track spell check decorations separately
+const spellCheckDecorations = new Map();
+// Track misspelled words for context menu
+const misspelledWordsMap = new Map();
 
 /**
  * Parse SQL content and find lines with PRIMARY KEY and FOREIGN KEY
@@ -64,6 +70,96 @@ function applyDecorations(editor, monaco, content) {
   // Apply new decorations and store the IDs
   const newDecorationIds = editor.deltaDecorations(existingDecorations, decorations);
   editorRefs.set(editor, newDecorationIds);
+}
+
+/**
+ * Apply spell check decorations to the editor
+ */
+function applySpellCheckDecorations(editor, monaco, content) {
+  if (!spellCheckService.isLoaded) return;
+
+  const words = spellCheckService.extractCheckableText(content);
+  const misspelled = [];
+
+  for (const wordInfo of words) {
+    if (!spellCheckService.check(wordInfo.word)) {
+      misspelled.push(wordInfo);
+    }
+  }
+
+  // Store misspelled words for context menu
+  misspelledWordsMap.set(editor, misspelled);
+
+  const decorations = misspelled.map(wordInfo => ({
+    range: new monaco.Range(
+      wordInfo.line,
+      wordInfo.startColumn,
+      wordInfo.line,
+      wordInfo.endColumn
+    ),
+    options: {
+      inlineClassName: 'spelling-error',
+      hoverMessage: {
+        value: `**Spelling:** "${wordInfo.word}" may be misspelled. Right-click for suggestions.`,
+      },
+    },
+  }));
+
+  // Get existing decoration IDs or empty array
+  const existingDecorations = spellCheckDecorations.get(editor) || [];
+
+  // Apply new decorations and store the IDs
+  const newDecorationIds = editor.deltaDecorations(existingDecorations, decorations);
+  spellCheckDecorations.set(editor, newDecorationIds);
+}
+
+/**
+ * Get misspelled word at a position (for context menu)
+ */
+function getMisspelledWordAtPosition(editor, position) {
+  const misspelled = misspelledWordsMap.get(editor) || [];
+  return misspelled.find(w =>
+    w.line === position.lineNumber &&
+    position.column >= w.startColumn &&
+    position.column <= w.endColumn
+  );
+}
+
+// Debounce helper for spell checking and linting
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+/**
+ * Apply SQL lint markers to the editor
+ */
+function applySqlLintMarkers(editor, monaco, content) {
+  const model = editor.getModel();
+  if (!model) return;
+
+  const issues = sqlLintService.validate(content);
+
+  const markers = issues.map(issue => ({
+    severity: issue.severity === 'error'
+      ? monaco.MarkerSeverity.Error
+      : monaco.MarkerSeverity.Warning,
+    message: issue.message,
+    startLineNumber: issue.startLine,
+    startColumn: issue.startColumn,
+    endLineNumber: issue.endLine,
+    endColumn: issue.endColumn,
+    source: 'sql-lint',
+  }));
+
+  monaco.editor.setModelMarkers(model, 'sql-lint', markers);
 }
 
 // Store provider disposal functions
@@ -278,6 +374,19 @@ function SqlTabs() {
   const { preferences } = useUserPreferences();
   const monacoRef = useRef(null);
   const schemaRef = useRef(schema);
+  const [spellCheckReady, setSpellCheckReady] = useState(false);
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, items: [] });
+  const activeEditorRef = useRef(null);
+
+  // Initialize spell checker
+  useEffect(() => {
+    spellCheckService.initialize().then((success) => {
+      if (success) {
+        setSpellCheckReady(true);
+        console.log('[SqlTabs] Spell checker initialized');
+      }
+    });
+  }, []);
 
   // Keep schema ref updated
   useEffect(() => {
@@ -464,14 +573,37 @@ function SqlTabs() {
     }
   }, [updateFileContent]);
 
+  // Debounced validation function (spell check + SQL lint) - use ref to keep stable reference
+  const debouncedValidationRef = useRef(null);
+  if (!debouncedValidationRef.current) {
+    debouncedValidationRef.current = debounce((editor, monaco, content, isSpellCheckReady) => {
+      // Run spell check
+      if (isSpellCheckReady) {
+        applySpellCheckDecorations(editor, monaco, content);
+      }
+      // Run SQL lint
+      applySqlLintMarkers(editor, monaco, content);
+    }, 500);
+  }
+  const debouncedValidation = useCallback((editor, monaco, content) => {
+    debouncedValidationRef.current(editor, monaco, content, spellCheckReady);
+  }, [spellCheckReady]);
+
   const handleEditorMount = useCallback((editor, monaco, content, filePath) => {
     monacoRef.current = monaco;
+    activeEditorRef.current = editor;
 
     // Register all language features (only once)
     registerLanguageFeatures(monaco);
 
     // Apply initial decorations
     applyDecorations(editor, monaco, content || '');
+
+    // Apply initial spell check and SQL lint
+    if (spellCheckReady) {
+      applySpellCheckDecorations(editor, monaco, content || '');
+    }
+    applySqlLintMarkers(editor, monaco, content || '');
 
     // Add save action (Cmd+S / Ctrl+S)
     editor.addAction({
@@ -508,7 +640,66 @@ function SqlTabs() {
         }
       }
     });
-  }, [registerLanguageFeatures, openFile, saveFile, preferences.editor.formatOnSave]);
+
+    // Add context menu for spelling suggestions
+    editor.onContextMenu((e) => {
+      const position = e.target.position;
+      if (!position) return;
+
+      const misspelledWord = getMisspelledWordAtPosition(editor, position);
+      if (misspelledWord) {
+        e.event.preventDefault();
+        e.event.stopPropagation();
+
+        const suggestions = spellCheckService.suggest(misspelledWord.word);
+        const menuItems = [];
+
+        // Add suggestions
+        if (suggestions.length > 0) {
+          suggestions.forEach((suggestion, index) => {
+            menuItems.push({
+              key: `suggestion-${index}`,
+              label: suggestion,
+              onClick: () => {
+                // Replace the misspelled word
+                const range = new monaco.Range(
+                  misspelledWord.line,
+                  misspelledWord.startColumn,
+                  misspelledWord.line,
+                  misspelledWord.endColumn
+                );
+                editor.executeEdits('spell-correction', [{
+                  range,
+                  text: suggestion,
+                }]);
+                setContextMenu({ visible: false, x: 0, y: 0, items: [] });
+              },
+            });
+          });
+          menuItems.push({ type: 'divider' });
+        }
+
+        // Add "Add to Dictionary" option
+        menuItems.push({
+          key: 'add-to-dictionary',
+          label: `Add "${misspelledWord.word}" to dictionary`,
+          onClick: () => {
+            spellCheckService.addToCustomDictionary(misspelledWord.word);
+            // Re-run spell check to remove the decoration
+            applySpellCheckDecorations(editor, monaco, editor.getValue());
+            setContextMenu({ visible: false, x: 0, y: 0, items: [] });
+          },
+        });
+
+        setContextMenu({
+          visible: true,
+          x: e.event.posx,
+          y: e.event.posy,
+          items: menuItems,
+        });
+      }
+    });
+  }, [registerLanguageFeatures, openFile, saveFile, preferences.editor.formatOnSave, spellCheckReady]);
 
   const handleClose = useCallback((e, filePath) => {
     e.stopPropagation();
@@ -555,7 +746,10 @@ function SqlTabs() {
             handleEditorMount(editor, monaco, file.content, file.path);
             // Re-apply decorations on content change via editor event
             editor.onDidChangeModelContent(() => {
-              applyDecorations(editor, monaco, editor.getValue());
+              const content = editor.getValue();
+              applyDecorations(editor, monaco, content);
+              // Debounced spell check
+              debouncedValidation(editor, monaco, content);
             });
           }}
           options={{
@@ -575,18 +769,43 @@ function SqlTabs() {
   });
 
   return (
-    <Tabs
-      type="card"
-      activeKey={activeFilePath}
-      onChange={handleTabChange}
-      items={items}
-      style={{ height: '100%' }}
-      tabBarStyle={{
-        margin: 0,
-        background: '#252526',
-        borderBottom: '1px solid #333',
-      }}
-    />
+    <>
+      <Tabs
+        type="card"
+        activeKey={activeFilePath}
+        onChange={handleTabChange}
+        items={items}
+        style={{ height: '100%' }}
+        tabBarStyle={{
+          margin: 0,
+          background: '#252526',
+          borderBottom: '1px solid #333',
+        }}
+      />
+
+      {/* Spelling suggestions context menu */}
+      {contextMenu.visible && (
+        <Dropdown
+          menu={{ items: contextMenu.items }}
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setContextMenu({ visible: false, x: 0, y: 0, items: [] });
+          }}
+          trigger={['contextMenu']}
+        >
+          <div
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              width: 1,
+              height: 1,
+              zIndex: 10000,
+            }}
+          />
+        </Dropdown>
+      )}
+    </>
   );
 }
 

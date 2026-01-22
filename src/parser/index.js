@@ -10,13 +10,14 @@ import { parse } from 'pgsql-ast-parser';
 /**
  * Parse all DDL files and return a unified schema
  * @param {Array<{path: string, content: string}>} files
- * @returns {Object} Schema with tables, types, sequences
+ * @returns {Object} Schema with tables, types, sequences, indexes
  */
 export function parseAllFiles(files) {
   const schema = {
     tables: [],
     types: [],
     sequences: [],
+    indexes: [], // Store CREATE INDEX statements
     alterTableConstraints: [], // Store ALTER TABLE statements to apply later
   };
 
@@ -26,6 +27,7 @@ export function parseAllFiles(files) {
       schema.tables.push(...fileSchema.tables);
       schema.types.push(...fileSchema.types);
       schema.sequences.push(...fileSchema.sequences);
+      schema.indexes.push(...fileSchema.indexes);
       schema.alterTableConstraints.push(...fileSchema.alterTableConstraints);
     } catch (error) {
       console.error(`Error parsing ${file.path}:`, error);
@@ -52,6 +54,7 @@ export function parseDDL(content, sourceFile = '') {
     tables: [],
     types: [],
     sequences: [],
+    indexes: [],
     alterTableConstraints: [],
   };
 
@@ -65,6 +68,8 @@ export function parseDDL(content, sourceFile = '') {
         schema.tables.push(parseTable(statement, sourceFile));
       } else if (statement.type === 'create sequence') {
         schema.sequences.push(parseSequence(statement, sourceFile));
+      } else if (statement.type === 'create index') {
+        schema.indexes.push(parseIndex(statement, sourceFile));
       } else if (statement.type === 'alter table') {
         schema.alterTableConstraints.push(parseAlterTable(statement));
       }
@@ -72,6 +77,16 @@ export function parseDDL(content, sourceFile = '') {
   } catch (error) {
     console.warn(`AST parse error in ${sourceFile}:`, error.message);
     // File might have syntax errors or unsupported constructs, skip it
+  }
+
+  // Also try to parse CREATE INDEX statements with regex fallback
+  // (pgsql-ast-parser may not fully support all CREATE INDEX variants)
+  const regexIndexes = parseIndexesWithRegex(content, sourceFile);
+  for (const idx of regexIndexes) {
+    // Only add if not already found by AST parser
+    if (!schema.indexes.some(i => i.name === idx.name && i.tableName === idx.tableName)) {
+      schema.indexes.push(idx);
+    }
   }
 
   return schema;
@@ -229,8 +244,8 @@ function parseAlterTable(statement) {
         alterations.push({
           tableName: cleanIdentifier(statement.table),
           foreignKey: {
-            constraintName: change.constraint.constraintName 
-              ? cleanIdentifier(change.constraint.constraintName) 
+            constraintName: change.constraint.constraintName
+              ? cleanIdentifier(change.constraint.constraintName)
               : null,
             columns: change.constraint.localColumns.map(c => cleanIdentifier(c)),
             referencedTable: cleanIdentifier(change.constraint.foreignTable),
@@ -242,6 +257,59 @@ function parseAlterTable(statement) {
   }
 
   return alterations;
+}
+
+/**
+ * Parse CREATE INDEX from AST
+ */
+function parseIndex(statement, sourceFile) {
+  return {
+    name: cleanIdentifier(statement.indexName),
+    tableName: cleanIdentifier(statement.table),
+    columns: statement.expressions
+      ? statement.expressions.map(e => e.column ? cleanIdentifier(e.column) : null).filter(Boolean)
+      : [],
+    unique: statement.unique || false,
+    sourceFile,
+  };
+}
+
+/**
+ * Parse CREATE INDEX statements using regex (fallback)
+ * Handles cases that the AST parser might miss
+ */
+function parseIndexesWithRegex(content, sourceFile) {
+  const indexes = [];
+
+  // Match CREATE [UNIQUE] INDEX [IF NOT EXISTS] index_name ON table_name (columns)
+  const indexRegex = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?(\w+)["']?\s+ON\s+["']?(\w+)["']?\s*\(([^)]+)\)/gi;
+
+  let match;
+  while ((match = indexRegex.exec(content)) !== null) {
+    const indexName = match[1];
+    const tableName = match[2];
+    const columnsStr = match[3];
+
+    // Parse column list (handle expressions, but extract column names)
+    const columns = columnsStr
+      .split(',')
+      .map(col => {
+        // Extract just the column name (first word, ignoring ASC/DESC, functions, etc.)
+        const colMatch = col.trim().match(/^["']?(\w+)["']?/);
+        return colMatch ? colMatch[1] : null;
+      })
+      .filter(Boolean);
+
+    indexes.push({
+      name: indexName,
+      tableName: tableName,
+      columns: columns,
+      unique: /CREATE\s+UNIQUE/i.test(match[0]),
+      sourceFile,
+    });
+  }
+
+  return indexes;
 }
 
 /**

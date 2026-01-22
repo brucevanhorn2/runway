@@ -36,6 +36,7 @@ export function analyzeSchema(schema, options = {}) {
     checkMissingPK = true,
     checkNamingConventions = true,
     checkFKNaming = true,
+    checkMissingIndexes = true,
     fkSuffix = '_id',
   } = options;
 
@@ -59,6 +60,10 @@ export function analyzeSchema(schema, options = {}) {
 
   if (checkFKNaming) {
     issues.push(...checkForeignKeyNaming(schema, fkSuffix));
+  }
+
+  if (checkMissingIndexes) {
+    issues.push(...detectMissingFKIndexes(schema));
   }
 
   // Sort by severity (errors first, then warnings, then info)
@@ -282,6 +287,87 @@ function checkForeignKeyNaming(schema, fkSuffix = '_id') {
             sourceFile: table.sourceFile,
             message: `Foreign key column "${table.name}.${column}" doesn't end with "${fkSuffix}"`,
             suggestion: `Consider renaming to "${column}${fkSuffix}" or similar for clarity (e.g., "user_id" for a reference to "users").`,
+          });
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Detect foreign key columns without indexes
+ * FK columns should typically have an index for efficient JOINs and referential integrity checks
+ */
+function detectMissingFKIndexes(schema) {
+  const issues = [];
+
+  // Build a map of indexed columns per table
+  const indexedColumns = new Map(); // tableName -> Set of column names
+
+  // Get indexes from schema (if available)
+  const indexes = schema.indexes || [];
+  for (const index of indexes) {
+    if (!indexedColumns.has(index.tableName)) {
+      indexedColumns.set(index.tableName, new Set());
+    }
+    for (const col of index.columns) {
+      indexedColumns.get(index.tableName).add(col.toLowerCase());
+    }
+  }
+
+  // Also consider primary keys as indexed (they implicitly have an index)
+  for (const table of schema.tables) {
+    if (!indexedColumns.has(table.name)) {
+      indexedColumns.set(table.name, new Set());
+    }
+    for (const pkCol of table.primaryKey || []) {
+      indexedColumns.get(table.name).add(pkCol.toLowerCase());
+    }
+
+    // Also consider unique constraints as indexed
+    for (const uniqueConstraint of table.uniqueConstraints || []) {
+      if (uniqueConstraint.length === 1) {
+        // Single-column unique constraints typically have an index
+        indexedColumns.get(table.name).add(uniqueConstraint[0].toLowerCase());
+      }
+    }
+  }
+
+  // Check each FK column for an index
+  for (const table of schema.tables) {
+    const tableIndexedCols = indexedColumns.get(table.name) || new Set();
+
+    for (const fk of table.foreignKeys) {
+      for (const fkCol of fk.columns) {
+        const colLower = fkCol.toLowerCase();
+
+        // Skip if already indexed (PK, unique, or explicit index)
+        if (tableIndexedCols.has(colLower)) {
+          continue;
+        }
+
+        // Check if there's a compound index that starts with this column
+        let hasCompoundIndex = false;
+        for (const index of indexes) {
+          if (index.tableName === table.name &&
+              index.columns.length > 0 &&
+              index.columns[0].toLowerCase() === colLower) {
+            hasCompoundIndex = true;
+            break;
+          }
+        }
+
+        if (!hasCompoundIndex) {
+          issues.push({
+            severity: Severity.WARNING,
+            category: Category.BEST_PRACTICES,
+            table: table.name,
+            column: fkCol,
+            sourceFile: table.sourceFile,
+            message: `Foreign key column "${table.name}.${fkCol}" has no index`,
+            suggestion: `Consider adding an index: CREATE INDEX idx_${table.name}_${fkCol} ON ${table.name}(${fkCol});`,
           });
         }
       }

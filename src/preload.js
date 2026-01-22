@@ -129,4 +129,13 @@ contextBridge.exposeInMainWorld('electron', {
   onOpenPreferences: (callback) => {
     ipcRenderer.on('open-preferences', callback);
   },
+
+  // ============================================================================
+  // SPELL CHECKING
+  // ============================================================================
+  loadDictionaryFile: (filename) => ipcRenderer.invoke('spellcheck:load-dictionary', filename),
+
+  loadCustomDictionary: () => ipcRenderer.invoke('spellcheck:load-custom'),
+
+  saveCustomDictionary: (words) => ipcRenderer.invoke('spellcheck:save-custom', words),
 });
