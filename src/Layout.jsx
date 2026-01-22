@@ -416,6 +416,7 @@ function LayoutInner() {
                   files={sqlFiles}
                   onFileSelect={handleFileSelect}
                   highlightedFile={highlightedFile}
+                  folderPath={openFolderPath}
                 />
               </div>
             </Splitter.Pane>

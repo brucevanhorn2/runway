@@ -79,25 +79,24 @@
       ]
     },
     "dmg": {
-      "icon": "build/icon.png",
       "background": "build/dmg-background.png",
-      "iconSize": 100,
+      "iconSize": 80,
       "contents": [
         {
-          "x": 250,
-          "y": 125,
+          "x": 150,
+          "y": 200,
           "type": "file"
         },
         {
-          "x": 410,
-          "y": 250,
+          "x": 450,
+          "y": 200,
           "type": "link",
           "path": "/Applications"
         }
       ],
       "window": {
-        "width": 540,
-        "height": 460
+        "width": 600,
+        "height": 400
       }
     },
     "win": {

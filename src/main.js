@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
@@ -677,6 +677,76 @@ const setupIPC = () => {
       return { success: true };
     } catch (error) {
       console.error('[Main] Failed to save file:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Reveal file/folder in Finder/Explorer
+  ipcMain.handle('file:reveal-in-finder', async (event, filePath) => {
+    try {
+      shell.showItemInFolder(filePath);
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Failed to reveal in finder:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Rename file or folder
+  ipcMain.handle('file:rename', async (event, oldPath, newName) => {
+    try {
+      const dir = path.dirname(oldPath);
+      const newPath = path.join(dir, newName);
+
+      // Check if new path already exists
+      const exists = await fs.access(newPath).then(() => true).catch(() => false);
+      if (exists) {
+        return { success: false, error: 'A file or folder with that name already exists' };
+      }
+
+      await fs.rename(oldPath, newPath);
+      return { success: true, newPath };
+    } catch (error) {
+      console.error('[Main] Failed to rename:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Delete file or folder
+  ipcMain.handle('file:delete', async (event, filePath) => {
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.isDirectory()) {
+        await fs.rm(filePath, { recursive: true });
+      } else {
+        await fs.unlink(filePath);
+      }
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Failed to delete:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Create new file in a specific folder
+  ipcMain.handle('file:create-in-folder', async (event, folderPath, fileName) => {
+    try {
+      const filePath = path.join(folderPath, fileName);
+
+      // Check if file already exists
+      const exists = await fs.access(filePath).then(() => true).catch(() => false);
+      if (exists) {
+        return { success: false, error: 'A file with that name already exists' };
+      }
+
+      // Create the file with initial content
+      const initialContent = '-- New SQL file\n-- Add your CREATE TABLE or CREATE TYPE statement here\n\n';
+      await fs.writeFile(filePath, initialContent, 'utf-8');
+
+      // The file watcher will pick up the new file automatically
+      return { success: true, path: filePath };
+    } catch (error) {
+      console.error('[Main] Failed to create file:', error);
       return { success: false, error: error.message };
     }
   });

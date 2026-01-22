@@ -47,6 +47,14 @@ contextBridge.exposeInMainWorld('electron', {
 
   readAllFiles: (folderPath) => ipcRenderer.invoke('folder:read-all', folderPath),
 
+  revealInFinder: (filePath) => ipcRenderer.invoke('file:reveal-in-finder', filePath),
+
+  renameFile: (oldPath, newName) => ipcRenderer.invoke('file:rename', oldPath, newName),
+
+  deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
+
+  createFileInFolder: (folderPath, fileName) => ipcRenderer.invoke('file:create-in-folder', folderPath, fileName),
+
   // ============================================================================
   // EXPORT OPERATIONS
   // ============================================================================

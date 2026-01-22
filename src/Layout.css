@@ -168,7 +168,7 @@
   opacity: 1;
 }
 
-/* File tree items */
+/* File tree items (legacy flat list) */
 .file-tree-item {
   display: flex;
   align-items: center;
@@ -190,6 +190,49 @@
 .file-tree-item .file-icon {
   color: #6997d5;
   font-size: 14px;
+}
+
+/* Hierarchical file tree */
+.file-tree-container {
+  padding: 4px 0;
+}
+
+.sql-file-tree.ant-tree {
+  background: transparent;
+  color: #d4d4d4;
+  font-size: 13px;
+}
+
+.sql-file-tree .ant-tree-treenode {
+  padding: 2px 0;
+}
+
+.sql-file-tree .ant-tree-node-content-wrapper {
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.sql-file-tree .ant-tree-node-content-wrapper:hover {
+  background: #252526;
+}
+
+.sql-file-tree .ant-tree-node-selected .ant-tree-node-content-wrapper,
+.sql-file-tree .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: #0e639c !important;
+  border-left: 3px solid #f5c518;
+  margin-left: -3px;
+}
+
+.sql-file-tree .ant-tree-switcher {
+  color: #888;
+}
+
+.sql-file-tree .ant-tree-switcher:hover {
+  color: #d4d4d4;
+}
+
+.sql-file-tree .ant-tree-iconEle {
+  margin-right: 4px;
 }
 
 /* Empty state */
