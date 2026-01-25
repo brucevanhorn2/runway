@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Layout as AntLayout, Splitter } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
 import FileTree from './components/FileTree';
 import SchemaView from './components/SchemaView';
 import SqlTabs from './components/SqlTabs';
 import SearchPanel from './components/SearchPanel';
 import FindUsagesPanel from './components/FindUsagesPanel';
 import SchemaAnalysisPanel from './components/SchemaAnalysisPanel';
+import ProblemsPanel from './components/ProblemsPanel';
 import Breadcrumb from './components/Breadcrumb';
 import PreferencesDialog from './components/PreferencesDialog';
+import sqlLintService from './services/SqlLintService';
+import spellCheckService from './services/SpellCheckService';
 import './Layout.css';
 
 // Import context providers
@@ -36,9 +39,10 @@ function LayoutInner() {
   const [findUsagesTable, setFindUsagesTable] = useState(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
+  const [showProblemsPanel, setShowProblemsPanel] = useState(false);
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
-  const { openFile, saveFile, activeFilePath } = useEditor();
+  const { openFile, saveFile, activeFilePath, openFiles, navigateToPosition } = useEditor();
   const { settings, loadSettings, updateSplitterSizes, isLoaded } = useProjectSettings();
   const { selectedTable } = useSelection();
 
@@ -284,6 +288,67 @@ function LayoutInner() {
     }
   }, [selectTable, sqlFiles, openFile]);
 
+  // Aggregate problems from all open files
+  const problems = useMemo(() => {
+    const allProblems = [];
+
+    for (const file of openFiles) {
+      if (!file.content) continue;
+
+      // Get SQL lint issues
+      const lintIssues = sqlLintService.validate(file.content);
+      for (const issue of lintIssues) {
+        allProblems.push({
+          ...issue,
+          filePath: file.path,
+          fileName: file.name,
+          source: 'sql-lint',
+        });
+      }
+
+      // Get spell check issues (if loaded)
+      if (spellCheckService.isLoaded) {
+        const words = spellCheckService.extractCheckableText(file.content);
+        for (const wordInfo of words) {
+          if (!spellCheckService.check(wordInfo.word)) {
+            allProblems.push({
+              severity: 'info',
+              message: `Unknown word: "${wordInfo.word}"`,
+              startLine: wordInfo.line,
+              startColumn: wordInfo.startColumn,
+              endLine: wordInfo.line,
+              endColumn: wordInfo.endColumn,
+              filePath: file.path,
+              fileName: file.name,
+              source: 'spell-check',
+            });
+          }
+        }
+      }
+    }
+
+    return allProblems;
+  }, [openFiles]);
+
+  // Handle toggle problems panel
+  const handleToggleProblems = useCallback(() => {
+    setShowProblemsPanel(prev => !prev);
+    setShowSearch(false);
+    setShowFindUsages(false);
+    setShowAnalysisPanel(false);
+  }, []);
+
+  // Handle close problems panel
+  const handleCloseProblems = useCallback(() => {
+    setShowProblemsPanel(false);
+  }, []);
+
+  // Handle navigate to problem
+  const handleNavigateToProblem = useCallback((filePath, line, column) => {
+    navigateToPosition(filePath, line, column);
+    setHighlightedFile(filePath);
+  }, [navigateToPosition]);
+
   useEffect(() => {
     if (window.electron) {
       window.electron.onFolderOpened(handleFolderOpened);
@@ -299,8 +364,9 @@ function LayoutInner() {
       window.electron.onOpenPreferences(handleOpenPreferences);
       window.electron.onAnalyzeSchema(handleAnalyzeSchema);
       window.electron.onSaveFile(handleSaveFile);
+      window.electron.onToggleProblems?.(handleToggleProblems);
     }
-  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema, handleSaveFile]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema, handleSaveFile, handleToggleProblems]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>
@@ -323,25 +389,46 @@ function LayoutInner() {
             {openFolderPath ? openFolderPath : 'No folder open'}
           </div>
           {openFolderPath && (
-            <button
-              onClick={handleToggleSearch}
-              style={{
-                background: showSearch ? '#0e639c' : 'transparent',
-                border: '1px solid #555',
-                borderRadius: '4px',
-                padding: '4px 8px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                color: '#ccc',
-                fontSize: '12px',
-              }}
-              title="Search in Files (Cmd+Shift+F)"
-            >
-              <SearchOutlined />
-              Search
-            </button>
+            <>
+              <button
+                onClick={handleToggleSearch}
+                style={{
+                  background: showSearch ? '#0e639c' : 'transparent',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: '#ccc',
+                  fontSize: '12px',
+                }}
+                title="Search in Files (Cmd+Shift+F)"
+              >
+                <SearchOutlined />
+                Search
+              </button>
+              <button
+                onClick={handleToggleProblems}
+                style={{
+                  background: showProblemsPanel ? '#0e639c' : 'transparent',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: problems.length > 0 ? (problems.some(p => p.severity === 'error') ? '#f44336' : '#ff9800') : '#ccc',
+                  fontSize: '12px',
+                }}
+                title="Problems Panel (Cmd+Shift+M)"
+              >
+                <WarningOutlined />
+                Problems {problems.length > 0 && `(${problems.length})`}
+              </button>
+            </>
           )}
         </div>
       </Header>
@@ -380,6 +467,17 @@ function LayoutInner() {
                 schema={schema}
                 onClose={handleCloseAnalysisPanel}
                 onNavigateToTable={handleNavigateToTableFromAnalysis}
+              />
+            </div>
+          )}
+
+          {/* Problems Panel - slides in from left */}
+          {showProblemsPanel && (
+            <div style={{ width: '400px', borderRight: '1px solid #333', flexShrink: 0 }}>
+              <ProblemsPanel
+                problems={problems}
+                onClose={handleCloseProblems}
+                onNavigate={handleNavigateToProblem}
               />
             </div>
           )}
