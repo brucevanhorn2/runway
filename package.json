@@ -1,6 +1,6 @@
 {
   "name": "runway",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "PostgreSQL DDL Visualizer - Schema modeling with plain SQL",
   "main": "src/main.js",
   "dependencies": {
@@ -23,12 +23,14 @@
     "@babel/preset-env": "^7.28.5",
     "@babel/preset-react": "^7.28.5",
     "@eslint/js": "^9.39.2",
+    "appdmg": "^0.6.6",
     "babel-loader": "^10.0.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "css-loader": "^7.1.2",
     "electron": "^27.0.0",
     "electron-builder": "^26.4.0",
+    "electron-installer-dmg": "^5.0.1",
     "eslint": "^9.39.2",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -49,6 +51,7 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
+    "dist:mac:dmg": "./scripts/build-dmg.sh",
     "dist:linux": "npm run build && electron-builder --linux",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
@@ -84,27 +87,28 @@
           ]
         },
         "zip"
-      ]
+      ],
+      "type": "distribution"
     },
     "dmg": {
       "background": "build/dmg-background.png",
-      "iconSize": 80,
+      "iconSize": 100,
       "contents": [
         {
-          "x": 150,
-          "y": 200,
+          "x": 140,
+          "y": 230,
           "type": "file"
         },
         {
-          "x": 450,
-          "y": 200,
+          "x": 460,
+          "y": 230,
           "type": "link",
           "path": "/Applications"
         }
       ],
       "window": {
         "width": 600,
-        "height": 400
+        "height": 450
       }
     },
     "win": {

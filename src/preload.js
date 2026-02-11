@@ -89,6 +89,10 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('fit-diagram', callback);
   },
 
+  onResetPanels: (callback) => {
+    ipcRenderer.on('reset-panels', callback);
+  },
+
   // ============================================================================
   // PROJECT SETTINGS (.runway file)
   // ============================================================================

@@ -39,7 +39,7 @@ function LayoutInner() {
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile, saveFile, activeFilePath } = useEditor();
-  const { settings, loadSettings, updateSplitterSizes, isLoaded } = useProjectSettings();
+  const { settings, loadSettings, updateSplitterSizes, resetSplitterSizes, isLoaded } = useProjectSettings();
   const { selectedTable } = useSelection();
 
   // Parse all DDL files and update schema
@@ -284,6 +284,11 @@ function LayoutInner() {
     }
   }, [selectTable, sqlFiles, openFile]);
 
+  // Handle reset panels
+  const handleResetPanels = useCallback(() => {
+    resetSplitterSizes();
+  }, [resetSplitterSizes]);
+
   useEffect(() => {
     if (window.electron) {
       window.electron.onFolderOpened(handleFolderOpened);
@@ -299,8 +304,9 @@ function LayoutInner() {
       window.electron.onOpenPreferences(handleOpenPreferences);
       window.electron.onAnalyzeSchema(handleAnalyzeSchema);
       window.electron.onSaveFile(handleSaveFile);
+      window.electron.onResetPanels(handleResetPanels);
     }
-  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema, handleSaveFile]);
+  }, [handleFolderOpened, handleFileChanged, handleFileAdded, handleFileRemoved, handleFileCreated, handleExportMarkdownDocs, handleExportDataDictionary, handleToggleSearch, handleFindUsages, handleGoToDefinition, handleOpenPreferences, handleAnalyzeSchema, handleSaveFile, handleResetPanels]);
 
   return (
     <AntLayout style={{ height: '100vh' }}>
@@ -442,7 +448,8 @@ function LayoutInner() {
               {/* Top - Schema Diagram */}
               <Splitter.Pane
                 size={isLoaded ? settings.splitter.diagramPaneSize : '60%'}
-                min="20%"
+                min="100px"
+                max="80%"
                 style={{
                   overflow: 'hidden',
                   display: 'flex',

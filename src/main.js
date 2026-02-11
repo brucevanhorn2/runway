@@ -335,6 +335,15 @@ const createMenu = () => {
           },
         },
         {
+          id: 'reset-panels',
+          label: 'Reset Panel Layout',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          enabled: false,
+          click: () => {
+            mainWindow.webContents.send('reset-panels');
+          },
+        },
+        {
           id: 'schema-analysis',
           label: 'Analyze Schema',
           accelerator: 'CmdOrCtrl+Shift+A',
@@ -398,6 +407,7 @@ function updateMenuState() {
   const findUsagesItem = menu.getMenuItemById('find-usages');
   const goToDefItem = menu.getMenuItemById('go-to-definition');
   const schemaAnalysisItem = menu.getMenuItemById('schema-analysis');
+  const resetPanelsItem = menu.getMenuItemById('reset-panels');
 
   if (newFileItem) newFileItem.enabled = hasFolderOpen;
   if (saveFileItem) saveFileItem.enabled = hasFolderOpen;
@@ -409,6 +419,7 @@ function updateMenuState() {
   if (findUsagesItem) findUsagesItem.enabled = hasFolderOpen;
   if (goToDefItem) goToDefItem.enabled = hasFolderOpen;
   if (schemaAnalysisItem) schemaAnalysisItem.enabled = hasFolderOpen;
+  if (resetPanelsItem) resetPanelsItem.enabled = hasFolderOpen;
 }
 
 /**

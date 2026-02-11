@@ -1,0 +1,21 @@
+{
+  "title": "Install Runway",
+  "icon": "icon.png",
+  "background": "dmg-background.png",
+  "icon-size": 100,
+  "contents": [
+    { "x": 140, "y": 230, "type": "file" },
+    { "x": 460, "y": 230, "type": "link", "path": "/Applications" }
+  ],
+  "window": {
+    "position": {
+      "x": 400,
+      "y": 100
+    },
+    "size": {
+      "width": 600,
+      "height": 450
+    }
+  },
+  "format": "UDZO"
+}

@@ -151,6 +151,22 @@ export function ProjectSettingsProvider({ children }) {
     setIsLoaded(false);
   }, []);
 
+  // Reset splitter sizes to defaults
+  const resetSplitterSizes = useCallback(() => {
+    setSettings(prev => {
+      const newSettings = {
+        ...prev,
+        splitter: {
+          ...DEFAULT_SETTINGS.splitter,
+        },
+      };
+      if (folderPath) {
+        debouncedSave(folderPath, newSettings);
+      }
+      return newSettings;
+    });
+  }, [folderPath, debouncedSave]);
+
   const value = {
     folderPath,
     settings,
@@ -158,6 +174,7 @@ export function ProjectSettingsProvider({ children }) {
     loadSettings,
     updateSetting,
     updateSplitterSizes,
+    resetSplitterSizes,
     updateNodePositions,
     updateNodePosition,
     clearSettings,

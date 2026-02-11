@@ -1,0 +1,17 @@
+{
+  "title": "Install Runway",
+  "icon": "../build/icon.png",
+  "background": "../build/dmg-background.png",
+  "icon-size": 100,
+  "contents": [
+    { "x": 140, "y": 230, "type": "file", "path": "../release/mac-arm64/Runway.app" },
+    { "x": 460, "y": 230, "type": "link", "path": "/Applications" }
+  ],
+  "window": {
+    "size": {
+      "width": 600,
+      "height": 450
+    }
+  },
+  "format": "UDZO"
+}
