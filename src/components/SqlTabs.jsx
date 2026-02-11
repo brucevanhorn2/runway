@@ -368,6 +368,8 @@ function SqlTabs() {
     updateFileContent,
     saveFile,
     openFile,
+    navigationTarget,
+    clearNavigationTarget,
   } = useEditor();
 
   const { schema } = useSchema();
@@ -392,6 +394,24 @@ function SqlTabs() {
   useEffect(() => {
     schemaRef.current = schema;
   }, [schema]);
+
+  // Handle navigation to specific position (from ProblemsPanel, etc.)
+  useEffect(() => {
+    if (navigationTarget && activeEditorRef.current && monacoRef.current) {
+      const editor = activeEditorRef.current;
+      const { line, column } = navigationTarget;
+
+      // Set cursor position
+      editor.setPosition({ lineNumber: line, column: column || 1 });
+      // Reveal the line in center of editor
+      editor.revealLineInCenter(line);
+      // Focus the editor
+      editor.focus();
+
+      // Clear the navigation target
+      clearNavigationTarget();
+    }
+  }, [navigationTarget, clearNavigationTarget]);
 
   // Register all language features once Monaco is loaded
   const registerLanguageFeatures = useCallback((monaco) => {

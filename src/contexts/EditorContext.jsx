@@ -5,6 +5,7 @@ const EditorContext = createContext(null);
 export function EditorProvider({ children }) {
   const [openFiles, setOpenFiles] = useState([]);
   const [activeFilePath, setActiveFilePath] = useState(null);
+  const [navigationTarget, setNavigationTarget] = useState(null); // { line, column }
 
   const openFile = useCallback(async (filePath, fileName) => {
     // Check if file is already open
@@ -81,6 +82,18 @@ export function EditorProvider({ children }) {
     return openFiles.find(f => f.path === activeFilePath) || null;
   }, [openFiles, activeFilePath]);
 
+  // Navigate to a specific file and position
+  const navigateToPosition = useCallback(async (filePath, line, column) => {
+    const fileName = filePath.split(/[/\\]/).pop();
+    await openFile(filePath, fileName);
+    setNavigationTarget({ line, column });
+  }, [openFile]);
+
+  // Clear navigation target after it's been consumed
+  const clearNavigationTarget = useCallback(() => {
+    setNavigationTarget(null);
+  }, []);
+
   const value = {
     openFiles,
     activeFilePath,
@@ -90,6 +103,9 @@ export function EditorProvider({ children }) {
     updateFileContent,
     saveFile,
     getActiveFile,
+    navigationTarget,
+    navigateToPosition,
+    clearNavigationTarget,
   };
 
   return (
