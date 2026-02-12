@@ -132,6 +132,9 @@
     "visualizer",
     "erd"
   ],
-  "author": "",
+  "author": {
+    "name": "Bruce Van Horn II",
+    "email": "brucevanhorn@me.com"
+  },
   "license": "MIT"
 }

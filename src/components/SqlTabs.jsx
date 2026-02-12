@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useEffect, useState } from 'react';
-import { Tabs, Dropdown } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
+import { Tabs, Dropdown, Button, Tooltip } from 'antd';
+import { CloseOutlined, EyeOutlined, EditOutlined } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
 import { useEditor } from '../contexts/EditorContext';
 import { useSchema } from '../contexts/SchemaContext';
@@ -378,6 +378,7 @@ function SqlTabs() {
   const schemaRef = useRef(schema);
   const [spellCheckReady, setSpellCheckReady] = useState(false);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, items: [] });
+  const [markdownPreviewMode, setMarkdownPreviewMode] = useState(new Map()); // Map of filePath -> isPreview
   const activeEditorRef = useRef(null);
 
   // Initialize spell checker
@@ -726,6 +727,14 @@ function SqlTabs() {
     closeFile(filePath);
   }, [closeFile]);
 
+  const toggleMarkdownPreview = useCallback((filePath) => {
+    setMarkdownPreviewMode(prev => {
+      const newMap = new Map(prev);
+      newMap.set(filePath, !newMap.get(filePath));
+      return newMap;
+    });
+  }, []);
+
   if (openFiles.length === 0) {
     return (
       <div className="empty-state" style={{ height: '100%' }}>
@@ -739,6 +748,7 @@ function SqlTabs() {
 
   const items = openFiles.map((file) => {
     const isMarkdown = file.name.endsWith('.md');
+    const isPreview = markdownPreviewMode.get(file.path) ?? true; // Default to preview for markdown
 
     return {
       key: file.path,
@@ -752,7 +762,58 @@ function SqlTabs() {
         </span>
       ),
       children: isMarkdown ? (
-        <MarkdownPreview content={file.content} />
+        <div style={{ height: '100%', position: 'relative' }}>
+          {/* Markdown toggle button */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              zIndex: 10,
+            }}
+          >
+            <Tooltip title={isPreview ? 'Edit markdown' : 'Preview markdown'}>
+              <Button
+                type="default"
+                size="small"
+                icon={isPreview ? <EditOutlined /> : <EyeOutlined />}
+                onClick={() => toggleMarkdownPreview(file.path)}
+                style={{
+                  background: '#3c3c3c',
+                  border: '1px solid #555',
+                  color: '#d4d4d4',
+                }}
+              >
+                {isPreview ? 'Edit' : 'Preview'}
+              </Button>
+            </Tooltip>
+          </div>
+
+          {/* Show either preview or editor */}
+          {isPreview ? (
+            <MarkdownPreview content={file.content} />
+          ) : (
+            <Editor
+              height="100%"
+              language="markdown"
+              theme="vs-dark"
+              value={file.content}
+              onChange={(value) => {
+                handleEditorChange(value, file.path, null);
+              }}
+              options={{
+                minimap: { enabled: preferences.editor.showMinimap },
+                fontSize: preferences.editor.fontSize,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                wordWrap: preferences.editor.wordWrap,
+                automaticLayout: true,
+                readOnly: false,
+                tabSize: preferences.editor.tabSize,
+              }}
+            />
+          )}
+        </div>
       ) : (
         <Editor
           height="100%"
