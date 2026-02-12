@@ -14,7 +14,9 @@ import {
   FileAddOutlined,
   PlusSquareOutlined,
   MinusSquareOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
+import DatabaseRootModal from './DatabaseRootModal';
 
 // File type styling configuration
 const FILE_TYPE_CONFIG = {
@@ -116,13 +118,23 @@ function getParentFolderKeys(filePath, files) {
   return keys;
 }
 
-function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
+function FileTree({ files, onFileSelect, highlightedFile, folderPath, databaseRoots = [], onDatabaseRootChange }) {
   const [expandedKeys, setExpandedKeys] = useState([]);
   const [contextMenu, setContextMenu] = useState({ visible: false, node: null, x: 0, y: 0 });
   const [renameModal, setRenameModal] = useState({ visible: false, node: null, newName: '' });
   const [deleteModal, setDeleteModal] = useState({ visible: false, node: null });
   const [newFileModal, setNewFileModal] = useState({ visible: false, folderPath: '', fileName: '' });
+  const [dbRootModal, setDbRootModal] = useState({ visible: false, mode: 'create', node: null, initialValues: null });
   const treeRef = useRef(null);
+
+  // Helpers to check database root status
+  const isDatabaseRoot = useCallback((absolutePath) => {
+    return databaseRoots.some(r => r.folderPath === absolutePath);
+  }, [databaseRoots]);
+
+  const getDatabaseRoot = useCallback((absolutePath) => {
+    return databaseRoots.find(r => r.folderPath === absolutePath) || null;
+  }, [databaseRoots]);
 
   // Build tree data from flat file list
   const treeData = useMemo(() => {
@@ -251,6 +263,53 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
     }
   }, [newFileModal]);
 
+  // Database root handlers
+  const handleMarkDbRoot = useCallback((node) => {
+    setDbRootModal({
+      visible: true,
+      mode: 'create',
+      node,
+      initialValues: { name: node.title, color: '#4a9eff', description: '' },
+    });
+  }, []);
+
+  const handleEditDbRoot = useCallback((node) => {
+    const existing = getDatabaseRoot(node.folderPath);
+    setDbRootModal({
+      visible: true,
+      mode: 'edit',
+      node,
+      initialValues: {
+        name: existing?.name || node.title,
+        color: existing?.color || '#4a9eff',
+        description: existing?.description || '',
+      },
+    });
+  }, [getDatabaseRoot]);
+
+  const handleRemoveDbRoot = useCallback(async (node) => {
+    if (!window.electron?.removeDatabaseRoot) return;
+    const result = await window.electron.removeDatabaseRoot(node.folderPath);
+    if (result.success) {
+      message.success('Database root removed');
+      onDatabaseRootChange?.();
+    } else {
+      message.error(result.error || 'Failed to remove database root');
+    }
+  }, [onDatabaseRootChange]);
+
+  const handleDbRootModalConfirm = useCallback(async (values) => {
+    if (!window.electron?.writeDatabaseRoot || !dbRootModal.node) return;
+    const result = await window.electron.writeDatabaseRoot(dbRootModal.node.folderPath, values);
+    if (result.success) {
+      message.success(dbRootModal.mode === 'create' ? 'Database root created' : 'Database root updated');
+      setDbRootModal({ visible: false, mode: 'create', node: null, initialValues: null });
+      onDatabaseRootChange?.();
+    } else {
+      message.error(result.error || 'Failed to save database root');
+    }
+  }, [dbRootModal, onDatabaseRootChange]);
+
   const handleExpandAll = useCallback((node) => {
     const descendantKeys = getAllDescendantKeys(node);
     setExpandedKeys(prev => [...new Set([...prev, ...descendantKeys])]);
@@ -264,7 +323,36 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
   // Build context menu items based on node type
   const getContextMenuItems = useCallback((node) => {
     if (node.isFolder) {
+      const isDbRoot = isDatabaseRoot(node.folderPath);
+      const dbRootItems = isDbRoot
+        ? [
+            {
+              key: 'editDbRoot',
+              icon: <DatabaseOutlined />,
+              label: 'Edit Database Info...',
+              onClick: () => handleEditDbRoot(node),
+            },
+            {
+              key: 'removeDbRoot',
+              icon: <DatabaseOutlined />,
+              label: 'Remove Database Root',
+              danger: true,
+              onClick: () => handleRemoveDbRoot(node),
+            },
+            { type: 'divider' },
+          ]
+        : [
+            {
+              key: 'markDbRoot',
+              icon: <DatabaseOutlined />,
+              label: 'Mark as Database Root',
+              onClick: () => handleMarkDbRoot(node),
+            },
+            { type: 'divider' },
+          ];
+
       return [
+        ...dbRootItems,
         {
           key: 'newFile',
           icon: <FileAddOutlined />,
@@ -328,7 +416,7 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
         },
       ];
     }
-  }, [handleNewFile, handleExpandAll, handleCollapseAll, handleRevealInFinder, handleCopyPath, handleRename, handleDelete]);
+  }, [handleNewFile, handleExpandAll, handleCollapseAll, handleRevealInFinder, handleCopyPath, handleRename, handleDelete, isDatabaseRoot, handleMarkDbRoot, handleEditDbRoot, handleRemoveDbRoot]);
 
   if (!files || files.length === 0) {
     return (
@@ -366,6 +454,7 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
   const titleRender = (nodeData) => {
     const isHighlighted = !nodeData.isFolder && highlightedFile === nodeData.key;
     const isOtherFile = !nodeData.isFolder && nodeData.file?.fileType === 'other';
+    const dbRoot = nodeData.isFolder ? getDatabaseRoot(nodeData.folderPath) : null;
 
     return (
       <span
@@ -373,10 +462,19 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
         style={{
           color: isOtherFile ? '#6e7681' : undefined,
           fontWeight: isHighlighted ? 'bold' : undefined,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
         }}
         title={nodeData.isFolder ? nodeData.title : `${nodeData.file?.path} (${nodeData.file?.fileType || 'other'})`}
       >
         {nodeData.title}
+        {dbRoot && (
+          <DatabaseOutlined
+            style={{ color: dbRoot.color, fontSize: '11px', marginLeft: 2 }}
+            title={dbRoot.name}
+          />
+        )}
       </span>
     );
   };
@@ -478,6 +576,16 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath }) {
           Will be created in: {newFileModal.folderPath}
         </p>
       </Modal>
+
+      {/* Database Root Modal */}
+      <DatabaseRootModal
+        open={dbRootModal.visible}
+        mode={dbRootModal.mode}
+        initialValues={dbRootModal.initialValues}
+        folderName={dbRootModal.node?.title}
+        onConfirm={handleDbRootModalConfirm}
+        onCancel={() => setDbRootModal({ visible: false, mode: 'create', node: null, initialValues: null })}
+      />
     </div>
   );
 }

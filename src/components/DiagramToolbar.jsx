@@ -19,6 +19,7 @@ import {
   VerticalAlignBottomOutlined,
   VerticalAlignMiddleOutlined,
   PicCenterOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 
 const styles = {
@@ -60,11 +61,14 @@ function DiagramToolbar({
   onToggleMinimap,
   onToggleCollapsed,
   onToggleGroupByFolder,
+  onGroupByDb,
   onAlign,
   currentLayout = 'LR',
   showMinimap = true,
   allCollapsed = false,
   groupByFolder = false,
+  groupByDb = false,
+  hasDatabaseRoots = false,
   tableCount = 0,
   typeCount = 0,
   selectedCount = 0,
@@ -162,6 +166,19 @@ function DiagramToolbar({
           }}
         />
       </Tooltip>
+
+      {/* Group by Database toggle - only shown when .runway-db roots exist */}
+      {hasDatabaseRoots && (
+        <Tooltip title="Group by Database">
+          <Button
+            size="small"
+            type={groupByDb ? 'primary' : 'default'}
+            icon={<DatabaseOutlined />}
+            onClick={() => onGroupByDb?.(!groupByDb)}
+            style={groupByDb ? {} : { background: '#3c3c3c', border: '1px solid #555', color: '#ccc' }}
+          />
+        </Tooltip>
+      )}
 
       <div style={styles.divider} />
 

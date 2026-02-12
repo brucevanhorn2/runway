@@ -21,6 +21,7 @@ import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import TableNode from './TableNode';
 import TypeNode from './TypeNode';
 import GroupNode from './GroupNode';
+import DatabaseGroupNode from './DatabaseGroupNode';
 import DiagramToolbar from './DiagramToolbar';
 import NodeContextMenu from './NodeContextMenu';
 import { generatePlantUML, generateSVGFromSchema } from '../services/ExportService';
@@ -30,6 +31,7 @@ const nodeTypes = {
   table: TableNode,
   type: TypeNode,
   group: GroupNode,
+  databaseGroup: DatabaseGroupNode,
 };
 
 // Group layout constants
@@ -102,6 +104,226 @@ function groupByFolder(tables, types, projectRoot) {
   });
 
   return groups;
+}
+
+// Database group layout constants
+const DB_PADDING = 50;
+const DB_HEADER_HEIGHT = 32;
+
+/**
+ * Group schema items by database root
+ * Returns Map<relativeFolderPath | '__ungrouped__', { tables, types, dbRoot }>
+ */
+function groupByDatabase(tables, types) {
+  const groups = new Map();
+
+  tables.forEach(table => {
+    if (table.database) {
+      const key = table.database.relativeFolderPath;
+      if (!groups.has(key)) {
+        groups.set(key, { tables: [], types: [], dbRoot: table.database });
+      }
+      groups.get(key).tables.push(table);
+    } else {
+      if (!groups.has('__ungrouped__')) {
+        groups.set('__ungrouped__', { tables: [], types: [], dbRoot: null });
+      }
+      groups.get('__ungrouped__').tables.push(table);
+    }
+  });
+
+  types.forEach(type => {
+    if (type.database) {
+      const key = type.database.relativeFolderPath;
+      if (!groups.has(key)) {
+        groups.set(key, { tables: [], types: [], dbRoot: type.database });
+      }
+      groups.get(key).types.push(type);
+    } else {
+      if (!groups.has('__ungrouped__')) {
+        groups.set('__ungrouped__', { tables: [], types: [], dbRoot: null });
+      }
+      groups.get('__ungrouped__').types.push(type);
+    }
+  });
+
+  return groups;
+}
+
+/**
+ * Create database-grouped layout with boundary boxes
+ */
+function getDbGroupedLayoutElements(schema, direction, collapsedNodes, nodeData, edgeConfig) {
+  const groups = groupByDatabase(schema.tables, schema.types);
+  const allNodes = [];
+  const allEdges = [];
+
+  // Separate db groups from ungrouped
+  const dbGroups = new Map();
+  let ungrouped = null;
+
+  groups.forEach((group, key) => {
+    if (key === '__ungrouped__') {
+      ungrouped = group;
+    } else {
+      dbGroups.set(key, group);
+    }
+  });
+
+  // Layout each db group's contents using inner dagre
+  const groupLayouts = new Map();
+
+  dbGroups.forEach((group, key) => {
+    const layout = layoutGroupContents(group.tables, group.types, schema, direction, collapsedNodes);
+    groupLayouts.set(key, {
+      ...layout,
+      dbRoot: group.dbRoot,
+      tableCount: group.tables.length,
+      typeCount: group.types.length,
+    });
+  });
+
+  // Layout the group boxes using outer dagre
+  const groupGraph = new dagre.graphlib.Graph();
+  groupGraph.setDefaultEdgeLabel(() => ({}));
+  groupGraph.setGraph({
+    rankdir: direction,
+    nodesep: 80,
+    ranksep: 100,
+    marginx: 40,
+    marginy: 40,
+  });
+
+  groupLayouts.forEach((layout, key) => {
+    const width = layout.width + DB_PADDING * 2;
+    const height = layout.height + DB_PADDING + DB_HEADER_HEIGHT;
+    groupGraph.setNode(key, { width, height });
+  });
+
+  // Add cross-db edges as rank hints
+  schema.tables.forEach(table => {
+    if (!table.database) return;
+    const sourceKey = table.database.relativeFolderPath;
+    table.foreignKeys.forEach(fk => {
+      const targetTable = schema.tables.find(t => t.name === fk.referencedTable);
+      if (targetTable && targetTable.database && targetTable.database.relativeFolderPath !== sourceKey) {
+        groupGraph.setEdge(sourceKey, targetTable.database.relativeFolderPath);
+      }
+    });
+  });
+
+  dagre.layout(groupGraph);
+
+  // Create final nodes with absolute positions
+  groupLayouts.forEach((layout, key) => {
+    const groupPos = groupGraph.node(key);
+    const groupWidth = layout.width + DB_PADDING * 2;
+    const groupHeight = layout.height + DB_PADDING + DB_HEADER_HEIGHT;
+
+    const groupX = groupPos.x - groupWidth / 2;
+    const groupY = groupPos.y - groupHeight / 2;
+
+    // Add databaseGroup boundary node
+    allNodes.push({
+      id: `db-group-${key}`,
+      type: 'databaseGroup',
+      position: { x: groupX, y: groupY },
+      style: { width: groupWidth, height: groupHeight },
+      data: {
+        name: layout.dbRoot.name,
+        description: layout.dbRoot.description,
+        color: layout.dbRoot.color,
+        tableCount: layout.tableCount,
+        typeCount: layout.typeCount,
+      },
+      zIndex: -1,
+      selectable: false,
+      draggable: false,
+    });
+
+    // Add child nodes at absolute positions
+    layout.nodes.forEach(node => {
+      const table = schema.tables.find(t => t.name === node.id);
+      const type = schema.types.find(t => t.name === node.id);
+
+      allNodes.push({
+        id: node.id,
+        type: node.type,
+        position: {
+          x: groupX + DB_PADDING + node.position.x,
+          y: groupY + DB_HEADER_HEIGHT + node.position.y,
+        },
+        data: {
+          ...(table ? { table } : {}),
+          ...(type ? { type } : {}),
+          ...nodeData,
+          isCollapsed: collapsedNodes[node.id] || false,
+        },
+      });
+    });
+  });
+
+  // Handle ungrouped items — position below all db group boxes
+  if (ungrouped && (ungrouped.tables.length > 0 || ungrouped.types.length > 0)) {
+    const ungroupedLayout = layoutGroupContents(
+      ungrouped.tables, ungrouped.types, schema, direction, collapsedNodes
+    );
+
+    let maxY = 0;
+    allNodes.forEach(node => {
+      if (node.type === 'databaseGroup') {
+        maxY = Math.max(maxY, node.position.y + (node.style?.height || 0));
+      }
+    });
+
+    const offsetY = maxY + 100;
+    ungroupedLayout.nodes.forEach(node => {
+      const table = schema.tables.find(t => t.name === node.id);
+      const type = schema.types.find(t => t.name === node.id);
+
+      allNodes.push({
+        id: node.id,
+        type: node.type,
+        position: {
+          x: node.position.x,
+          y: offsetY + node.position.y,
+        },
+        data: {
+          ...(table ? { table } : {}),
+          ...(type ? { type } : {}),
+          ...nodeData,
+          isCollapsed: collapsedNodes[node.id] || false,
+        },
+      });
+    });
+  }
+
+  // Create all FK edges
+  schema.tables.forEach(table => {
+    table.foreignKeys.forEach((fk, fkIndex) => {
+      const edgeLabel = edgeConfig.showLabels
+        ? (fk.constraintName || fk.columns.join(', '))
+        : undefined;
+
+      allEdges.push({
+        id: `${table.name}-${fk.referencedTable}-${fkIndex}`,
+        source: table.name,
+        target: fk.referencedTable,
+        type: 'smoothstep',
+        animated: edgeConfig.animated,
+        style: { stroke: '#6997d5', strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: '#6997d5',
+        },
+        label: edgeLabel,
+        labelStyle: { fill: '#888', fontSize: 10 },
+        labelBgStyle: { fill: '#1e1e1e', fillOpacity: 0.8 },
+      });
+    });
+  });
+
+  return { nodes: allNodes, edges: allEdges };
 }
 
 /**
@@ -457,6 +679,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   const [layoutDirection, setLayoutDirection] = useState(preferences.diagram.defaultLayout);
   const [showMinimap, setShowMinimap] = useState(preferences.diagram.showMinimap);
   const [groupByFolder, setGroupByFolder] = useState(false);
+  const [groupByDb, setGroupByDb] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, node }
   const [selectedNodes, setSelectedNodes] = useState([]); // Track selected nodes for alignment
 
@@ -464,7 +687,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   useOnSelectionChange({
     onChange: ({ nodes }) => {
       // Filter out group nodes from selection (can't align groups)
-      const selectableNodes = nodes.filter(n => n.type !== 'group');
+      const selectableNodes = nodes.filter(n => n.type !== 'group' && n.type !== 'databaseGroup');
       setSelectedNodes(selectableNodes);
     },
   });
@@ -494,6 +717,41 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
 
   // Convert schema to React Flow nodes and edges
   const { schemaNodes, schemaEdges } = useMemo(() => {
+    // When grouping by database, use the db-grouped layout function
+    if (groupByDb && schema.tables.some(t => t.database)) {
+      const nodeData = {
+        isSelected: false,
+        onToggleCollapse: handleToggleCollapse,
+      };
+      const edgeConfig = {
+        animated: preferences.diagram.animateEdges,
+        showLabels: preferences.diagram.showEdgeLabels,
+      };
+
+      const result = getDbGroupedLayoutElements(
+        schema,
+        layoutDirection,
+        collapsedNodes,
+        nodeData,
+        edgeConfig
+      );
+
+      // Add selection and filter state to non-group nodes
+      const nodesWithState = result.nodes.map(node => {
+        if (node.type === 'databaseGroup') return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isSelected: selectedTable === node.id,
+            isFiltered: matchesFilter(node.id),
+          },
+        };
+      });
+
+      return { schemaNodes: nodesWithState, schemaEdges: result.edges };
+    }
+
     // When grouping by folder, use the grouped layout function
     if (groupByFolder && schema.tables.length > 0) {
       const nodeData = {
@@ -590,15 +848,15 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     });
 
     return { schemaNodes, schemaEdges };
-  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences, groupByFolder, projectRoot, layoutDirection]);
+  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences, groupByFolder, groupByDb, projectRoot, layoutDirection]);
 
   // Apply layout when schema changes
   useEffect(() => {
     if (schemaNodes.length > 0 && settingsLoaded) {
       let layoutedNodes;
 
-      // When grouping by folder, nodes already have positions from getGroupedLayoutElements
-      if (groupByFolder) {
+      // When grouping by folder or database, nodes already have absolute positions
+      if (groupByFolder || groupByDb) {
         layoutedNodes = schemaNodes;
         console.log('[SchemaView] Applied grouped layout');
       } else {
@@ -639,7 +897,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
       nodePositionsRef.current = {};
       isInitialLayoutRef.current = true;
     }
-  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded, layoutDirection, collapsedNodes, groupByFolder]);
+  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded, layoutDirection, collapsedNodes, groupByFolder, groupByDb]);
 
   // Focus on selected table when selection changes
   useEffect(() => {
@@ -713,11 +971,13 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     );
 
     if (positionChanges.length > 0) {
-      // Collect all current positions
+      // Collect all current positions (skip group nodes)
       setNodes(currentNodes => {
         const positions = {};
         currentNodes.forEach(node => {
-          positions[node.id] = node.position;
+          if (node.type !== 'group' && node.type !== 'databaseGroup') {
+            positions[node.id] = node.position;
+          }
         });
         nodePositionsRef.current = positions;
         // Save to project settings
@@ -1052,11 +1312,14 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
         onToggleMinimap={handleToggleMinimap}
         onToggleCollapsed={handleToggleAllCollapsed}
         onToggleGroupByFolder={handleToggleGroupByFolder}
+        onGroupByDb={setGroupByDb}
         onAlign={handleAlign}
         currentLayout={layoutDirection}
         showMinimap={showMinimap}
         allCollapsed={allNodesCollapsed}
         groupByFolder={groupByFolder}
+        groupByDb={groupByDb}
+        hasDatabaseRoots={schema.tables.some(t => t.database !== null)}
         tableCount={schema.tables.length}
         typeCount={schema.types.length}
         selectedCount={selectedNodes.length}

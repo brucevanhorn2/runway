@@ -142,4 +142,15 @@ contextBridge.exposeInMainWorld('electron', {
   loadCustomDictionary: () => ipcRenderer.invoke('spellcheck:load-custom'),
 
   saveCustomDictionary: (words) => ipcRenderer.invoke('spellcheck:save-custom', words),
+
+  // ============================================================================
+  // DATABASE ROOTS (.runway-db marker files)
+  // ============================================================================
+  scanDatabaseRoots: (folderPath) => ipcRenderer.invoke('db:scan-roots', folderPath),
+
+  writeDatabaseRoot: (folderPath, meta) => ipcRenderer.invoke('db:write-root', folderPath, meta),
+
+  removeDatabaseRoot: (folderPath) => ipcRenderer.invoke('db:remove-root', folderPath),
+
+  onDbRootsChanged: (callback) => ipcRenderer.on('db-roots-changed', (_, data) => callback(data)),
 });

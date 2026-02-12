@@ -20,6 +20,7 @@ import { EditorProvider, useEditor } from './contexts/EditorContext';
 import { SelectionProvider, useSelection } from './contexts/SelectionContext';
 import { ProjectSettingsProvider, useProjectSettings } from './contexts/ProjectSettingsContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
+import { DatabaseRootsProvider, useDatabaseRoots } from './contexts/DatabaseRootsContext';
 
 // Import parser
 import { parseAllFiles } from './parser';
@@ -45,6 +46,7 @@ function LayoutInner() {
   const { openFile, saveFile, activeFilePath, openFiles, navigateToPosition } = useEditor();
   const { settings, loadSettings, updateSplitterSizes, resetSplitterSizes, isLoaded } = useProjectSettings();
   const { selectedTable } = useSelection();
+  const { loadDatabaseRoots, findDatabaseForFile, databaseRoots, clearRoots } = useDatabaseRoots();
 
   // Parse all DDL files and update schema
   const parseSchema = useCallback(async (folderPath) => {
@@ -54,8 +56,19 @@ function LayoutInner() {
     try {
       const result = await window.electron.readAllFiles(folderPath);
       if (result.success) {
-        const schema = parseAllFiles(result.files);
-        updateSchema(schema);
+        const rawSchema = parseAllFiles(result.files);
+
+        // Enrich tables and types with database root info
+        const enrichedTables = rawSchema.tables.map(t => ({
+          ...t,
+          database: findDatabaseForFile(t.sourceFile, folderPath) || null,
+        }));
+        const enrichedTypes = rawSchema.types.map(t => ({
+          ...t,
+          database: findDatabaseForFile(t.sourceFile, folderPath) || null,
+        }));
+
+        updateSchema({ ...rawSchema, tables: enrichedTables, types: enrichedTypes });
       } else {
         setParseError(result.error);
       }
@@ -65,17 +78,28 @@ function LayoutInner() {
     } finally {
       setIsLoading(false);
     }
-  }, [updateSchema, setIsLoading, setParseError]);
+  }, [updateSchema, setIsLoading, setParseError, findDatabaseForFile]);
 
   // Handle folder opened
   const handleFolderOpened = useCallback((data) => {
     setSqlFiles(data.files);
     setOpenFolderPath(data.path);
     clearSchema();
+    clearRoots();
+    // Load database roots — useEffect([databaseRoots]) will re-run parseSchema after they're loaded
+    loadDatabaseRoots(data.path);
     parseSchema(data.path);
     // Load project-specific settings (.runway file)
     loadSettings(data.path);
-  }, [clearSchema, parseSchema, loadSettings]);
+  }, [clearSchema, clearRoots, loadDatabaseRoots, parseSchema, loadSettings]);
+
+  // Re-enrich schema when database roots change
+  useEffect(() => {
+    if (openFolderPath && databaseRoots !== undefined) {
+      parseSchema(openFolderPath);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [databaseRoots]);
 
   // Handle file changes - update file type in tree and re-parse schema
   const handleFileChanged = useCallback((data) => {
@@ -522,6 +546,8 @@ function LayoutInner() {
                   onFileSelect={handleFileSelect}
                   highlightedFile={highlightedFile}
                   folderPath={openFolderPath}
+                  databaseRoots={databaseRoots}
+                  onDatabaseRootChange={() => openFolderPath && loadDatabaseRoots(openFolderPath)}
                 />
               </div>
             </Splitter.Pane>
@@ -598,17 +624,19 @@ function LayoutInner() {
 
 function Layout() {
   return (
-    <UserPreferencesProvider>
-      <ProjectSettingsProvider>
-        <SchemaProvider>
-          <EditorProvider>
-            <SelectionProvider>
-              <LayoutInner />
-            </SelectionProvider>
-          </EditorProvider>
-        </SchemaProvider>
-      </ProjectSettingsProvider>
-    </UserPreferencesProvider>
+    <DatabaseRootsProvider>
+      <UserPreferencesProvider>
+        <ProjectSettingsProvider>
+          <SchemaProvider>
+            <EditorProvider>
+              <SelectionProvider>
+                <LayoutInner />
+              </SelectionProvider>
+            </EditorProvider>
+          </SchemaProvider>
+        </ProjectSettingsProvider>
+      </UserPreferencesProvider>
+    </DatabaseRootsProvider>
   );
 }
 

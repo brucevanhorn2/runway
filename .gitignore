@@ -6,3 +6,4 @@ release/
 npm-debug.log*
 .env
 .env.local
+.runway

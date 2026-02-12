@@ -490,16 +490,29 @@ async function openFolder(folderPath) {
       files: files,
     });
 
-    // Set up file watcher for .sql and .md files
+    // Set up file watcher for .sql, .md, and .runway-db files
     fileWatcher = chokidar.watch([
       path.join(folderPath, '**/*.sql'),
       path.join(folderPath, '**/*.md'),
+      path.join(folderPath, '**/.runway-db'),
     ], {
       persistent: true,
       ignoreInitial: true,
+      dot: true,
     });
 
     fileWatcher.on('add', async (filePath) => {
+      // Handle .runway-db marker file
+      if (path.basename(filePath) === '.runway-db') {
+        try {
+          const roots = await scanDatabaseRoots(folderPath);
+          mainWindow.webContents.send('db-roots-changed', { roots });
+        } catch (error) {
+          console.error('[Main] Error scanning database roots after add:', error);
+        }
+        return;
+      }
+
       try {
         const content = await fs.readFile(filePath, 'utf-8');
         const relativePath = path.relative(folderPath, filePath);
@@ -515,6 +528,17 @@ async function openFolder(folderPath) {
     });
 
     fileWatcher.on('change', async (filePath) => {
+      // Handle .runway-db marker file
+      if (path.basename(filePath) === '.runway-db') {
+        try {
+          const roots = await scanDatabaseRoots(folderPath);
+          mainWindow.webContents.send('db-roots-changed', { roots });
+        } catch (error) {
+          console.error('[Main] Error scanning database roots after change:', error);
+        }
+        return;
+      }
+
       // Read the file and determine its new type
       try {
         const content = await fs.readFile(filePath, 'utf-8');
@@ -530,7 +554,18 @@ async function openFolder(folderPath) {
       }
     });
 
-    fileWatcher.on('unlink', (filePath) => {
+    fileWatcher.on('unlink', async (filePath) => {
+      // Handle .runway-db marker file
+      if (path.basename(filePath) === '.runway-db') {
+        try {
+          const roots = await scanDatabaseRoots(folderPath);
+          mainWindow.webContents.send('db-roots-changed', { roots });
+        } catch (error) {
+          console.error('[Main] Error scanning database roots after unlink:', error);
+        }
+        return;
+      }
+
       mainWindow.webContents.send('file-removed', { path: filePath });
     });
 
@@ -627,6 +662,54 @@ async function scanProjectFiles(dirPath, basePath = dirPath) {
 async function scanSqlFiles(dirPath, basePath = dirPath) {
   const files = await scanProjectFiles(dirPath, basePath);
   return files.filter(f => f.name.endsWith('.sql'));
+}
+
+/**
+ * Recursively scan for .runway-db marker files
+ */
+async function scanDatabaseRoots(dirPath, basePath = dirPath) {
+  const roots = [];
+  let entries;
+  try {
+    entries = await fs.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return roots;
+  }
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const subDir = path.join(dirPath, entry.name);
+      const markerPath = path.join(subDir, '.runway-db');
+      const exists = await fs.access(markerPath).then(() => true).catch(() => false);
+      if (exists) {
+        try {
+          const content = await fs.readFile(markerPath, 'utf-8');
+          const meta = JSON.parse(content);
+          roots.push({
+            folderPath: subDir,
+            relativeFolderPath: path.relative(basePath, subDir),
+            name: meta.name || entry.name,
+            color: meta.color || '#4a9eff',
+            description: meta.description || '',
+          });
+        } catch {
+          roots.push({
+            folderPath: subDir,
+            relativeFolderPath: path.relative(basePath, subDir),
+            name: entry.name,
+            color: '#4a9eff',
+            description: '',
+          });
+        }
+      }
+      // Recurse regardless
+      const subRoots = await scanDatabaseRoots(subDir, basePath);
+      roots.push(...subRoots);
+    }
+  }
+
+  return roots;
 }
 
 /**
@@ -1067,6 +1150,47 @@ const setupIPC = () => {
       return { success: true };
     } catch (error) {
       console.error('[Main] Failed to save custom dictionary:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ============================================================================
+  // DATABASE ROOTS (.runway-db marker files)
+  // ============================================================================
+
+  ipcMain.handle('db:scan-roots', async (event, folderPath) => {
+    try {
+      const roots = await scanDatabaseRoots(folderPath);
+      return { success: true, roots };
+    } catch (error) {
+      console.error('[Main] Failed to scan database roots:', error);
+      return { success: false, error: error.message, roots: [] };
+    }
+  });
+
+  ipcMain.handle('db:write-root', async (event, folderPath, meta) => {
+    try {
+      const markerPath = path.join(folderPath, '.runway-db');
+      const content = JSON.stringify({
+        name: meta.name || '',
+        color: meta.color || '#4a9eff',
+        description: meta.description || '',
+      }, null, 2);
+      await fs.writeFile(markerPath, content, 'utf-8');
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Failed to write database root:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('db:remove-root', async (event, folderPath) => {
+    try {
+      const markerPath = path.join(folderPath, '.runway-db');
+      await fs.unlink(markerPath);
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Failed to remove database root:', error);
       return { success: false, error: error.message };
     }
   });
