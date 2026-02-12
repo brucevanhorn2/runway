@@ -1,45 +1,70 @@
-# University Database Schema
+# Runway Test Data
 
-This folder contains the DDL definitions for a university database system.
+This folder demonstrates Runway's **Database Boundary Grouping** feature. It contains two completely separate databases living side-by-side in the same project tree — a common monorepo pattern.
 
-## Overview
+Open this folder in Runway (`File → Open Folder`), then click the **Group by Database** button (database icon) in the diagram toolbar to see each database surrounded by its own colored boundary box, with foreign key relationships visible across boundaries.
 
-The database manages:
-- **Students** - Student enrollment and personal information
-- **Teachers** - Faculty members and their employment details
-- **Classes** - Course offerings with capacity and schedule information
-- **Enrollments** - Many-to-many relationship between students and classes
-- **Instructors** - Many-to-many relationship between teachers and classes
+---
 
-## Entity Relationships
+## school_db — University Database
+
+**Color:** Sky Blue (`#4a9eff`)
+
+Manages students, faculty, and course offerings for a university.
+
+| File | Table / Type | Description |
+|------|-------------|-------------|
+| `01_enums.sql` | `student_status`, `semester`, `employment_type` | Shared enum types |
+| `02_students.sql` | `students` | Student enrollment and personal info |
+| `03_teachers.sql` | `teachers` | Faculty members and employment details |
+| `04_classes.sql` | `classes` | Course offerings with capacity and schedule |
+| `05_enrollments.sql` | `enrollments` | Many-to-many: students ↔ classes |
+| `06_class_instructors.sql` | `class_instructors` | Many-to-many: teachers ↔ classes |
+
+### Relationships
 
 ```
-Students ──┬── Enrollments ──┬── Classes
-           │                 │
-           └─────────────────┴── Class Instructors ──── Teachers
+students ──── enrollments ──── classes ──── class_instructors ──── teachers
 ```
 
-## Enum Types
+---
 
-| Type | Values | Description |
-|------|--------|-------------|
-| `student_status` | active, inactive, graduated, suspended | Current enrollment status |
-| `semester` | fall, spring, summer | Academic term |
-| `employment_type` | full_time, part_time, adjunct | Faculty employment classification |
+## ecommerce_db — Order Management Database
 
-## Tables
+**Color:** Emerald (`#4caf87`)
 
-### Core Entities
-1. **students** - Student records with status tracking
-2. **teachers** - Faculty member records
-3. **classes** - Course offerings
+A simple but complete order management system for an online store, covering customers, products, orders, and payments.
 
-### Junction Tables
-4. **enrollments** - Links students to classes with grade tracking
-5. **class_instructors** - Links teachers to classes they teach
+| File | Table / Type | Description |
+|------|-------------|-------------|
+| `01_enums.sql` | `order_status`, `payment_status`, `address_type` | Shared enum types |
+| `02_customers.sql` | `customers` | Registered shoppers |
+| `03_addresses.sql` | `addresses` | Billing and shipping addresses per customer |
+| `04_products.sql` | `products` | Product catalog with pricing and inventory |
+| `05_orders.sql` | `orders` | Customer orders with status and totals |
+| `06_order_items.sql` | `order_items` | Line items within an order |
+| `07_payments.sql` | `payments` | Payment attempts and gateway responses |
 
-## Notes
+### Relationships
 
-- All tables use `SERIAL` for auto-incrementing primary keys
-- Foreign keys enforce referential integrity
-- Timestamps track record creation and updates
+```
+customers ──┬── addresses ◄── orders ──── order_items ──── products
+            │                    │
+            └────────────────────┴── payments
+```
+
+---
+
+## How the `.runway-db` Files Work
+
+Each database folder contains a `.runway-db` marker file:
+
+```json
+{
+  "name": "Ecommerce DB",
+  "color": "#4caf87",
+  "description": "Order management, product catalog, and payment processing for an online store"
+}
+```
+
+These files are plain JSON, safe to commit to version control, and can be created or edited directly in Runway by right-clicking any folder in the file tree.

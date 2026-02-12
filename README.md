@@ -38,6 +38,42 @@ Download the latest release from the [Releases page](../../releases). macOS user
 - **Marquee selection** - Draw a box to select multiple nodes
 - **Alignment tools** - Align selected nodes (left, right, top, bottom, center, distribute)
 - **Group by folder** - UML package-style grouping based on folder structure
+- **Group by Database** - Colored boundary boxes for monorepos with multiple databases
+
+### Database Boundary Grouping (Monorepos)
+
+When you have multiple databases in the same repository tree, Runway can visually group tables by database using colored boundary boxes — similar to UML package diagrams.
+
+**Marking a folder as a database root:**
+
+1. Right-click any folder in the file tree
+2. Select **Mark as Database Root**
+3. Fill in the name, choose a color, and add an optional description
+4. A `DatabaseOutlined` icon in your chosen color appears next to that folder in the tree
+
+This creates a `.runway-db` marker file in that folder containing the metadata as JSON. The file is plain text and safe to commit to version control — your whole team shares the same database groupings.
+
+**Using the diagram view:**
+
+Once one or more `.runway-db` files exist, a **Group by Database** button (database icon) appears in the diagram toolbar. Toggle it to surround each database's tables with a solid-border colored boundary box. Foreign key arrows cross database boundaries freely so you can see inter-database dependencies at a glance.
+
+**Managing database roots:**
+
+- **Edit** — right-click a marked folder → "Edit Database Info..." to rename, recolor, or update the description
+- **Remove** — right-click a marked folder → "Remove Database Root" to delete the `.runway-db` file and remove the grouping
+- **External changes** — creating or deleting `.runway-db` files outside Runway (e.g., `git pull`) is detected automatically via the file watcher and the diagram updates without a restart
+
+**How the `.runway-db` file looks:**
+
+```json
+{
+  "name": "Users Database",
+  "color": "#4a9eff",
+  "description": "Handles authentication, profiles, and sessions"
+}
+```
+
+**Tables without a database root** are rendered below all the boundary boxes as free-floating nodes, so ungrouped tables are never hidden.
 
 ### Navigation & Search
 - **Global search** - Search across all SQL files (Cmd+Shift+F)
@@ -165,7 +201,7 @@ runway/
 │   │   ├── SearchPanel.jsx
 │   │   ├── SchemaAnalysisPanel.jsx
 │   │   └── ...
-│   ├── contexts/            # React contexts (Schema, Editor, Selection)
+│   ├── contexts/            # React contexts (Schema, Editor, Selection, DatabaseRoots)
 │   ├── parser/              # AST-based DDL parser
 │   ├── utils/               # Utilities (schemaAnalyzer, docGenerator)
 │   └── services/            # Export services
