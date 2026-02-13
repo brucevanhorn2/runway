@@ -9,6 +9,9 @@ const isDev = process.env.NODE_ENV === 'development';
 // Set app name for macOS menu bar (fixes "Electron" showing in dev mode)
 app.name = 'Runway';
 
+// App icon (used for dock/taskbar in dev; packaged builds get it from electron-builder)
+const appIcon = path.join(__dirname, '..', 'build', 'icon.png');
+
 let mainWindow;
 let fileWatcher = null;
 let currentFolderPath = null;
@@ -108,12 +111,18 @@ const createWindow = () => {
     width: 1400,
     height: 900,
     title: 'Runway',
+    icon: appIcon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+
+  // macOS: set the dock icon explicitly (especially useful in dev mode)
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(appIcon);
+  }
 
   const startUrl = isDev
     ? 'http://localhost:2112'
@@ -1199,6 +1208,9 @@ const setupIPC = () => {
 };
 
 app.on('ready', () => {
+  // Set app user model ID — helps Linux desktops match the window to an icon
+  app.setAppUserModelId('com.runway.app');
+
   // Load settings before creating window (so menu has recent folders)
   loadSettings();
   setupIPC();
