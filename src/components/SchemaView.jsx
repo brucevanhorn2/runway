@@ -111,40 +111,46 @@ const DB_PADDING = 50;
 const DB_HEADER_HEIGHT = 32;
 
 /**
- * Group schema items by database root
+ * Pure helper: walk up from a file path to find its database root.
+ * No hooks, no context — safe to call anywhere.
+ */
+function findDbForFile(filePath, projectRoot, databaseRoots) {
+  if (!filePath || !databaseRoots || databaseRoots.length === 0) return null;
+  const normalizedRoot = projectRoot ? projectRoot.replace(/\/$/, '') : '';
+  let dir = filePath.substring(0, filePath.lastIndexOf('/'));
+  while (dir && dir.length >= normalizedRoot.length) {
+    const match = databaseRoots.find(r => r.folderPath === dir);
+    if (match) return match;
+    const parentSlash = dir.lastIndexOf('/');
+    if (parentSlash === -1) break;
+    dir = dir.substring(0, parentSlash);
+  }
+  return null;
+}
+
+/**
+ * Group schema items by database root.
  * Returns Map<relativeFolderPath | '__ungrouped__', { tables, types, dbRoot }>
  */
-function groupByDatabase(tables, types) {
+function groupByDatabase(tables, types, databaseRoots, projectRoot) {
   const groups = new Map();
 
   tables.forEach(table => {
-    if (table.database) {
-      const key = table.database.relativeFolderPath;
-      if (!groups.has(key)) {
-        groups.set(key, { tables: [], types: [], dbRoot: table.database });
-      }
-      groups.get(key).tables.push(table);
-    } else {
-      if (!groups.has('__ungrouped__')) {
-        groups.set('__ungrouped__', { tables: [], types: [], dbRoot: null });
-      }
-      groups.get('__ungrouped__').tables.push(table);
+    const db = findDbForFile(table.sourceFile, projectRoot, databaseRoots);
+    const key = db ? db.relativeFolderPath : '__ungrouped__';
+    if (!groups.has(key)) {
+      groups.set(key, { tables: [], types: [], dbRoot: db });
     }
+    groups.get(key).tables.push(table);
   });
 
   types.forEach(type => {
-    if (type.database) {
-      const key = type.database.relativeFolderPath;
-      if (!groups.has(key)) {
-        groups.set(key, { tables: [], types: [], dbRoot: type.database });
-      }
-      groups.get(key).types.push(type);
-    } else {
-      if (!groups.has('__ungrouped__')) {
-        groups.set('__ungrouped__', { tables: [], types: [], dbRoot: null });
-      }
-      groups.get('__ungrouped__').types.push(type);
+    const db = findDbForFile(type.sourceFile, projectRoot, databaseRoots);
+    const key = db ? db.relativeFolderPath : '__ungrouped__';
+    if (!groups.has(key)) {
+      groups.set(key, { tables: [], types: [], dbRoot: db });
     }
+    groups.get(key).types.push(type);
   });
 
   return groups;
@@ -153,8 +159,8 @@ function groupByDatabase(tables, types) {
 /**
  * Create database-grouped layout with boundary boxes
  */
-function getDbGroupedLayoutElements(schema, direction, collapsedNodes, nodeData, edgeConfig) {
-  const groups = groupByDatabase(schema.tables, schema.types);
+function getDbGroupedLayoutElements(schema, projectRoot, databaseRoots, direction, collapsedNodes, nodeData, edgeConfig) {
+  const groups = groupByDatabase(schema.tables, schema.types, databaseRoots, projectRoot);
   const allNodes = [];
   const allEdges = [];
 
@@ -202,19 +208,23 @@ function getDbGroupedLayoutElements(schema, direction, collapsedNodes, nodeData,
 
   // Add cross-db edges as rank hints
   schema.tables.forEach(table => {
-    if (!table.database) return;
-    const sourceKey = table.database.relativeFolderPath;
+    const sourceDb = findDbForFile(table.sourceFile, projectRoot, databaseRoots);
+    if (!sourceDb) return;
+    const sourceKey = sourceDb.relativeFolderPath;
     table.foreignKeys.forEach(fk => {
       const targetTable = schema.tables.find(t => t.name === fk.referencedTable);
-      if (targetTable && targetTable.database && targetTable.database.relativeFolderPath !== sourceKey) {
-        groupGraph.setEdge(sourceKey, targetTable.database.relativeFolderPath);
+      if (targetTable) {
+        const targetDb = findDbForFile(targetTable.sourceFile, projectRoot, databaseRoots);
+        if (targetDb && targetDb.relativeFolderPath !== sourceKey) {
+          groupGraph.setEdge(sourceKey, targetDb.relativeFolderPath);
+        }
       }
     });
   });
 
   dagre.layout(groupGraph);
 
-  // Create final nodes with absolute positions
+  // Create parent group nodes + child nodes with parent-relative positions
   groupLayouts.forEach((layout, key) => {
     const groupPos = groupGraph.node(key);
     const groupWidth = layout.width + DB_PADDING * 2;
@@ -222,10 +232,11 @@ function getDbGroupedLayoutElements(schema, direction, collapsedNodes, nodeData,
 
     const groupX = groupPos.x - groupWidth / 2;
     const groupY = groupPos.y - groupHeight / 2;
+    const groupNodeId = `db-group-${key}`;
 
-    // Add databaseGroup boundary node
+    // Add the databaseGroup container — draggable, children ride along automatically
     allNodes.push({
-      id: `db-group-${key}`,
+      id: groupNodeId,
       type: 'databaseGroup',
       position: { x: groupX, y: groupY },
       style: { width: groupWidth, height: groupHeight },
@@ -238,10 +249,10 @@ function getDbGroupedLayoutElements(schema, direction, collapsedNodes, nodeData,
       },
       zIndex: -1,
       selectable: false,
-      draggable: false,
     });
 
-    // Add child nodes at absolute positions
+    // Child nodes: positions are relative to the group parent.
+    // extent: 'parent' prevents dragging outside the boundary box.
     layout.nodes.forEach(node => {
       const table = schema.tables.find(t => t.name === node.id);
       const type = schema.types.find(t => t.name === node.id);
@@ -249,9 +260,11 @@ function getDbGroupedLayoutElements(schema, direction, collapsedNodes, nodeData,
       allNodes.push({
         id: node.id,
         type: node.type,
+        parentNode: groupNodeId,
+        extent: 'parent',
         position: {
-          x: groupX + DB_PADDING + node.position.x,
-          y: groupY + DB_HEADER_HEIGHT + node.position.y,
+          x: DB_PADDING + node.position.x,
+          y: DB_HEADER_HEIGHT + node.position.y,
         },
         data: {
           ...(table ? { table } : {}),
@@ -659,7 +672,7 @@ function getGroupedLayoutElements(schema, projectRoot, direction, collapsedNodes
   return { nodes: allNodes, edges: allEdges };
 }
 
-function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot }) {
+function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot, databaseRoots = [] }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
   const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
@@ -680,6 +693,12 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   const [showMinimap, setShowMinimap] = useState(preferences.diagram.showMinimap);
   const [groupByFolder, setGroupByFolder] = useState(false);
   const [groupByDb, setGroupByDb] = useState(false);
+
+  // Auto-enable db grouping when .runway-db roots are loaded; disable when folder has none
+  useEffect(() => {
+    setGroupByDb(databaseRoots.length > 0);
+  }, [databaseRoots]);
+
   const [contextMenu, setContextMenu] = useState(null); // { x, y, node }
   const [selectedNodes, setSelectedNodes] = useState([]); // Track selected nodes for alignment
 
@@ -718,7 +737,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   // Convert schema to React Flow nodes and edges
   const { schemaNodes, schemaEdges } = useMemo(() => {
     // When grouping by database, use the db-grouped layout function
-    if (groupByDb && schema.tables.some(t => t.database)) {
+    if (groupByDb && databaseRoots.length > 0) {
       const nodeData = {
         isSelected: false,
         onToggleCollapse: handleToggleCollapse,
@@ -730,6 +749,8 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
 
       const result = getDbGroupedLayoutElements(
         schema,
+        projectRoot,
+        databaseRoots,
         layoutDirection,
         collapsedNodes,
         nodeData,
@@ -848,7 +869,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     });
 
     return { schemaNodes, schemaEdges };
-  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences, groupByFolder, groupByDb, projectRoot, layoutDirection]);
+  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences, groupByFolder, groupByDb, projectRoot, layoutDirection, databaseRoots]);
 
   // Apply layout when schema changes
   useEffect(() => {
@@ -965,6 +986,9 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   const handleNodesChange = useCallback((changes) => {
     onNodesChange(changes);
 
+    // In db-group mode positions are parent-relative; don't overwrite flat-layout saved state
+    if (groupByDb) return;
+
     // Check if any node positions changed (drag end)
     const positionChanges = changes.filter(
       change => change.type === 'position' && change.dragging === false
@@ -985,12 +1009,15 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
         return currentNodes;
       });
     }
-  }, [onNodesChange, updateNodePositions, setNodes]);
+  }, [onNodesChange, updateNodePositions, setNodes, groupByDb]);
 
   // Handle node click - select table and notify parent
   const onNodeClick = useCallback((event, node) => {
     // Close context menu if open
     setContextMenu(null);
+
+    // Ignore clicks on container nodes
+    if (node.type === 'databaseGroup' || node.type === 'group') return;
 
     selectTable(node.id);
 
@@ -1319,7 +1346,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
         allCollapsed={allNodesCollapsed}
         groupByFolder={groupByFolder}
         groupByDb={groupByDb}
-        hasDatabaseRoots={schema.tables.some(t => t.database !== null)}
+        hasDatabaseRoots={databaseRoots.length > 0}
         tableCount={schema.tables.length}
         typeCount={schema.types.length}
         selectedCount={selectedNodes.length}
@@ -1375,7 +1402,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
 }
 
 // Wrapper component that provides ReactFlow context
-function SchemaView({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot }) {
+function SchemaView({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot, databaseRoots }) {
   return (
     <ReactFlowProvider>
       <SchemaViewInner
@@ -1383,6 +1410,7 @@ function SchemaView({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot
         onGoToDefinition={onGoToDefinition}
         onFindUsages={onFindUsages}
         projectRoot={projectRoot}
+        databaseRoots={databaseRoots}
       />
     </ReactFlowProvider>
   );

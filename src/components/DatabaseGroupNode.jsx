@@ -16,21 +16,26 @@ const DatabaseGroupNode = memo(({ data }) => {
   return (
     <div
       style={{
-        background: hexToRgba(safeColor, 0.06),
+        // Dark charcoal fill — clearly visible on the #1e1e1e canvas without washing out nodes
+        background: '#26262c',
         border: `2px solid ${safeColor}`,
         borderRadius: '8px',
-        minWidth: '100%',
-        minHeight: '100%',
+        // Fill the full size React Flow assigns via the node's style prop
+        width: '100%',
+        height: '100%',
         position: 'relative',
+        boxSizing: 'border-box',
+        // Subtle inner glow along the border so the colour reads at a glance
+        boxShadow: `inset 0 0 0 1px ${hexToRgba(safeColor, 0.25)}`,
       }}
     >
-      {/* Header badge - floats above top-left */}
+      {/* Header badge — floats above the top-left corner of the container */}
       <div
         style={{
           position: 'absolute',
           top: '-14px',
           left: '12px',
-          background: hexToRgba(safeColor, 0.85),
+          background: safeColor,
           padding: '2px 10px',
           borderRadius: '4px',
           display: 'flex',
@@ -41,28 +46,32 @@ const DatabaseGroupNode = memo(({ data }) => {
           fontWeight: 'bold',
           zIndex: 10,
           whiteSpace: 'nowrap',
+          // Keep the badge readable: darken slightly if colour is very light
+          textShadow: '0 1px 2px rgba(0,0,0,0.4)',
         }}
       >
         <DatabaseOutlined style={{ fontSize: '11px' }} />
         <span>{name}</span>
-        <span style={{ opacity: 0.8, fontWeight: 'normal' }}>
+        <span style={{ opacity: 0.75, fontWeight: 'normal' }}>
           ({tableCount} tables{typeCount > 0 ? `, ${typeCount} types` : ''})
         </span>
       </div>
 
-      {/* Description */}
+      {/* Optional description — sits just inside the top edge below the badge */}
       {description && (
         <div
           style={{
             position: 'absolute',
-            top: '8px',
-            left: '12px',
-            right: '12px',
-            color: safeColor,
+            top: '10px',
+            left: '14px',
+            right: '14px',
+            color: hexToRgba(safeColor, 0.7),
             fontSize: '10px',
             fontStyle: 'italic',
-            opacity: 0.8,
             pointerEvents: 'none',
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
           }}
         >
           {description}
