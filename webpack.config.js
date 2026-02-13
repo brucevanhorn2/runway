@@ -35,6 +35,11 @@ module.exports = {
     port: 2112, // Changed port to avoid conflict
     hot: true,
     historyApiFallback: true,
+    client: {
+      overlay: {
+        runtimeErrors: (error) => !error?.message?.includes('ResizeObserver'),
+      },
+    },
   },
   plugins: [
     new HtmlWebpackPlugin({

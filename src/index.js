@@ -13,8 +13,9 @@ window.console.error = (...args) => {
 window.addEventListener('error', (e) => {
   if (e.message?.includes('ResizeObserver')) {
     e.stopImmediatePropagation();
+    e.preventDefault();
   }
-});
+}, true); // capture phase runs before webpack-dev-server's bubble-phase overlay handler
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

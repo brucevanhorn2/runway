@@ -496,9 +496,9 @@ function LayoutInner() {
           <Splitter
             style={{ height: '100%', flex: 1 }}
             onResizeEnd={(sizes) => {
-              // Save left pane size when resize ends
-              if (sizes[0] !== undefined) {
-                updateSplitterSizes(sizes[0] + 'px', null);
+              // Save left pane size when resize ends (store as raw number, not '123px' string)
+              if (sizes[0] !== undefined && !Number.isNaN(sizes[0])) {
+                updateSplitterSizes(sizes[0], null);
               }
             }}
           >
@@ -544,9 +544,9 @@ function LayoutInner() {
               layout="vertical"
               style={{ height: '100%' }}
               onResizeEnd={(sizes) => {
-                // Save diagram pane size when resize ends
-                if (sizes[0] !== undefined) {
-                  updateSplitterSizes(null, sizes[0] + 'px');
+                // Save diagram pane size when resize ends (store as raw number, not '123px' string)
+                if (sizes[0] !== undefined && !Number.isNaN(sizes[0])) {
+                  updateSplitterSizes(null, sizes[0]);
                 }
               }}
             >
