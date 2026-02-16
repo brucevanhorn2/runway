@@ -4,12 +4,14 @@ const SelectionContext = createContext(null);
 
 export function SelectionProvider({ children }) {
   const [selectedTable, setSelectedTable] = useState(null);
+  const [selectedTableSourceFile, setSelectedTableSourceFile] = useState(null);
   const [selectedColumn, setSelectedColumn] = useState(null);
   const [selectedType, setSelectedType] = useState(null);
   const [selectedSequence, setSelectedSequence] = useState(null);
 
-  const selectTable = useCallback((tableName) => {
-    setSelectedTable(tableName);
+  const selectTable = useCallback((tableId, sourceFile = null) => {
+    setSelectedTable(tableId);
+    setSelectedTableSourceFile(sourceFile);
     setSelectedColumn(null);
     setSelectedType(null);
     setSelectedSequence(null);
@@ -38,6 +40,7 @@ export function SelectionProvider({ children }) {
 
   const clearSelection = useCallback(() => {
     setSelectedTable(null);
+    setSelectedTableSourceFile(null);
     setSelectedColumn(null);
     setSelectedType(null);
     setSelectedSequence(null);
@@ -45,6 +48,7 @@ export function SelectionProvider({ children }) {
 
   const value = {
     selectedTable,
+    selectedTableSourceFile,
     selectedColumn,
     selectedType,
     selectedSequence,

@@ -6,6 +6,7 @@ import {
   WarningOutlined,
   InfoCircleOutlined,
   FileTextOutlined,
+  DiffOutlined,
 } from '@ant-design/icons';
 
 const styles = {
@@ -101,7 +102,7 @@ const severityIcons = {
   hint: <InfoCircleOutlined style={{ color: '#4caf50', fontSize: '14px' }} />,
 };
 
-function ProblemsPanel({ problems, onClose, onNavigate }) {
+function ProblemsPanel({ problems, onClose, onNavigate, onShowDiff }) {
   // Sort problems: errors first, then warnings, then info/hints
   const sortedProblems = useMemo(() => {
     const severityOrder = { error: 0, warning: 1, info: 2, hint: 3 };
@@ -127,7 +128,9 @@ function ProblemsPanel({ problems, onClose, onNavigate }) {
   }, [problems]);
 
   const handleClick = (problem) => {
-    if (onNavigate) {
+    if (problem.source === 'schema-drift' && onShowDiff) {
+      onShowDiff(problem);
+    } else if (onNavigate) {
       onNavigate(problem.filePath, problem.startLine, problem.startColumn);
     }
   };
@@ -205,6 +208,22 @@ function ProblemsPanel({ problems, onClose, onNavigate }) {
                         marginLeft: '8px',
                       }}
                     />
+                  )}
+                  {problem.source === 'schema-drift' && (
+                    <span
+                      style={{
+                        marginLeft: '6px',
+                        color: '#ff9800',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        fontSize: '10px',
+                        opacity: 0.8,
+                      }}
+                    >
+                      <DiffOutlined style={{ fontSize: '11px' }} />
+                      click to diff
+                    </span>
                   )}
                 </div>
               </div>

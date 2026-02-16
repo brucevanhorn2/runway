@@ -3,7 +3,7 @@ import { Handle, Position } from 'reactflow';
 import { TableOutlined, KeyOutlined, LinkOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
 
 const TableNode = memo(({ data, selected }) => {
-  const { table, isSelected, isCollapsed, isFiltered, onToggleCollapse } = data;
+  const { table, isSelected, isMatched, isCollapsed, isFiltered, onToggleCollapse } = data;
   const isHighlighted = selected || isSelected;
   const isDimmed = isFiltered === false; // Explicitly false means filtered out
 
@@ -20,18 +20,25 @@ const TableNode = memo(({ data, selected }) => {
     onToggleCollapse?.(table.name);
   }, [onToggleCollapse, table.name]);
 
+  const borderColor = isHighlighted ? '#f5c518' : isMatched ? '#00b894' : '#444';
+  const borderWidth = (isHighlighted || isMatched) ? '2px' : '1px';
+  const boxShadow = isHighlighted
+    ? '0 0 12px rgba(245, 197, 24, 0.3)'
+    : isMatched
+      ? '0 0 12px rgba(0, 184, 148, 0.3)'
+      : '0 2px 8px rgba(0, 0, 0, 0.3)';
+  const headerBg = isHighlighted ? '#d48806' : isMatched ? '#00766b' : '#0e639c';
+
   return (
     <div
       style={{
         background: '#252526',
-        border: isHighlighted ? '2px solid #f5c518' : '1px solid #444',
+        border: `${borderWidth} solid ${borderColor}`,
         borderRadius: '4px',
         minWidth: '200px',
         maxWidth: '300px',
         fontSize: '12px',
-        boxShadow: isHighlighted
-          ? '0 0 12px rgba(245, 197, 24, 0.3)'
-          : '0 2px 8px rgba(0, 0, 0, 0.3)',
+        boxShadow,
         transition: 'border-color 0.2s, box-shadow 0.2s, opacity 0.2s',
         opacity: isDimmed ? 0.4 : 1,
       }}
@@ -39,7 +46,7 @@ const TableNode = memo(({ data, selected }) => {
       {/* Table Header */}
       <div
         style={{
-          background: isHighlighted ? '#d48806' : '#0e639c',
+          background: headerBg,
           padding: '8px 12px',
           borderRadius: isCollapsed ? '3px' : '3px 3px 0 0',
           display: 'flex',

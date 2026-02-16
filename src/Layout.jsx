@@ -8,6 +8,7 @@ import SearchPanel from './components/SearchPanel';
 import FindUsagesPanel from './components/FindUsagesPanel';
 import SchemaAnalysisPanel from './components/SchemaAnalysisPanel';
 import ProblemsPanel from './components/ProblemsPanel';
+import SchemaDiffModal from './components/SchemaDiffModal';
 import Breadcrumb from './components/Breadcrumb';
 import PreferencesDialog from './components/PreferencesDialog';
 import sqlLintService from './services/SqlLintService';
@@ -41,12 +42,20 @@ function LayoutInner() {
   const [showPreferences, setShowPreferences] = useState(false);
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
   const [showProblemsPanel, setShowProblemsPanel] = useState(false);
+  const [diffProblem, setDiffProblem] = useState(null);
 
   const { schema, updateSchema, setIsLoading, setParseError, clearSchema } = useSchema();
   const { openFile, saveFile, activeFilePath, openFiles, navigateToPosition } = useEditor();
   const { settings, loadSettings, updateSplitterSizes, resetSplitterSizes, isLoaded } = useProjectSettings();
-  const { selectedTable } = useSelection();
-  const { loadDatabaseRoots, databaseRoots, clearRoots } = useDatabaseRoots();
+  const { selectedTable, selectedTableSourceFile } = useSelection();
+
+  // Extract plain table name from a potentially compound node ID (e.g. "dbKey::tableName")
+  const getSelectedTableName = (nodeId) => {
+    if (!nodeId) return null;
+    const sep = nodeId.indexOf('::');
+    return sep >= 0 ? nodeId.slice(sep + 2) : nodeId;
+  };
+  const { loadDatabaseRoots, databaseRoots, clearRoots, findDatabaseForFile } = useDatabaseRoots();
 
   // Parse all DDL files and update schema
   const parseSchema = useCallback(async (folderPath) => {
@@ -202,7 +211,7 @@ function LayoutInner() {
   // Handle find usages
   const handleFindUsages = useCallback(() => {
     if (selectedTable) {
-      setFindUsagesTable(selectedTable);
+      setFindUsagesTable(getSelectedTableName(selectedTable));
       setShowFindUsages(true);
       setShowSearch(false);
       setShowAnalysisPanel(false);
@@ -222,14 +231,15 @@ function LayoutInner() {
 
   // Handle go to definition - jump to the selected table's source file
   const handleGoToDefinition = useCallback(() => {
-    if (selectedTable) {
-      const table = schema.tables.find(t => t.name === selectedTable);
-      if (table && table.sourceFile) {
-        openFile(table.sourceFile, table.sourceFile.split('/').pop());
-        setHighlightedFile(table.sourceFile);
-      }
+    if (!selectedTable) return;
+    // Prefer the stored source file (set when clicking a node); fall back to schema lookup
+    const sourceFile = selectedTableSourceFile ||
+      schema.tables.find(t => t.name === getSelectedTableName(selectedTable))?.sourceFile;
+    if (sourceFile) {
+      openFile(sourceFile, sourceFile.split('/').pop());
+      setHighlightedFile(sourceFile);
     }
-  }, [selectedTable, schema, openFile]);
+  }, [selectedTable, selectedTableSourceFile, schema, openFile]);
 
   // Handle go to definition from context menu (with specific table name)
   const handleGoToDefinitionForTable = useCallback((tableName, sourceFile) => {
@@ -331,8 +341,85 @@ function LayoutInner() {
       }
     }
 
+    // Schema drift detection: warn when same-named tables in different databases have
+    // mismatched structures (columns, types, nullability, primary key).
+    if (openFolderPath && schema.tables.length > 0) {
+      // Group tables by name
+      const tablesByName = new Map();
+      for (const table of schema.tables) {
+        if (!tablesByName.has(table.name)) tablesByName.set(table.name, []);
+        tablesByName.get(table.name).push(table);
+      }
+
+      for (const [tableName, tables] of tablesByName) {
+        // Only care about tables that appear in more than one source file
+        const uniqueFiles = new Set(tables.map(t => t.sourceFile));
+        if (uniqueFiles.size < 2) continue;
+
+        // Sort by DB name for a stable reference/copy ordering
+        const sorted = [...tables].sort((a, b) => {
+          const dbA = findDatabaseForFile(a.sourceFile, openFolderPath)?.name || a.sourceFile;
+          const dbB = findDatabaseForFile(b.sourceFile, openFolderPath)?.name || b.sourceFile;
+          return dbA.localeCompare(dbB);
+        });
+
+        const [ref, ...copies] = sorted;
+        const refDbName = findDatabaseForFile(ref.sourceFile, openFolderPath)?.name
+          || ref.sourceFile.split('/').pop();
+
+        for (const copy of copies) {
+          const copyDbName = findDatabaseForFile(copy.sourceFile, openFolderPath)?.name
+            || copy.sourceFile.split('/').pop();
+
+          const diffs = [];
+
+          const refColMap = new Map(ref.columns.map(c => [c.name, c]));
+          const copyColMap = new Map(copy.columns.map(c => [c.name, c]));
+
+          // Missing / extra columns
+          const missing = ref.columns.filter(c => !copyColMap.has(c.name)).map(c => c.name);
+          const extra = copy.columns.filter(c => !refColMap.has(c.name)).map(c => c.name);
+          if (missing.length > 0) diffs.push(`missing columns: ${missing.join(', ')}`);
+          if (extra.length > 0) diffs.push(`extra columns: ${extra.join(', ')}`);
+
+          // Type and nullability differences for shared columns
+          for (const refCol of ref.columns) {
+            const copyCol = copyColMap.get(refCol.name);
+            if (!copyCol) continue;
+            if (refCol.dataType !== copyCol.dataType) {
+              diffs.push(`"${refCol.name}" type: ${refCol.dataType} vs ${copyCol.dataType}`);
+            } else if (refCol.nullable !== copyCol.nullable) {
+              diffs.push(`"${refCol.name}" nullability: ${refCol.nullable ? 'nullable' : 'NOT NULL'} vs ${copyCol.nullable ? 'nullable' : 'NOT NULL'}`);
+            }
+          }
+
+          // Primary key differences
+          const refPk = [...ref.primaryKey].sort().join(', ');
+          const copyPk = [...copy.primaryKey].sort().join(', ');
+          if (refPk !== copyPk) {
+            diffs.push(`primary key: (${refPk || 'none'}) vs (${copyPk || 'none'})`);
+          }
+
+          if (diffs.length > 0) {
+            allProblems.push({
+              severity: 'warning',
+              message: `Schema drift: "${tableName}" in "${copyDbName}" differs from "${refDbName}" — ${diffs.join('; ')}`,
+              filePath: copy.sourceFile,
+              fileName: copy.sourceFile.split('/').pop(),
+              source: 'schema-drift',
+              // Extra data for the diff view
+              refTable: ref,
+              copyTable: copy,
+              refDbName,
+              copyDbName,
+            });
+          }
+        }
+      }
+    }
+
     return allProblems;
-  }, [openFiles]);
+  }, [openFiles, schema, openFolderPath, findDatabaseForFile]);
 
   // Handle toggle problems panel
   const handleToggleProblems = useCallback(() => {
@@ -345,6 +432,15 @@ function LayoutInner() {
   // Handle close problems panel
   const handleCloseProblems = useCallback(() => {
     setShowProblemsPanel(false);
+  }, []);
+
+  // Handle schema-drift diff view
+  const handleShowDiff = useCallback((problem) => {
+    setDiffProblem(problem);
+  }, []);
+
+  const handleCloseDiff = useCallback(() => {
+    setDiffProblem(null);
   }, []);
 
   // Handle navigate to problem
@@ -489,6 +585,7 @@ function LayoutInner() {
                 problems={problems}
                 onClose={handleCloseProblems}
                 onNavigate={handleNavigateToProblem}
+                onShowDiff={handleShowDiff}
               />
             </div>
           )}
@@ -599,6 +696,14 @@ function LayoutInner() {
         open={showPreferences}
         onClose={handleClosePreferences}
       />
+
+      {/* Schema Diff Modal — shown when a schema-drift problem is clicked */}
+      {diffProblem && (
+        <SchemaDiffModal
+          problem={diffProblem}
+          onClose={handleCloseDiff}
+        />
+      )}
     </AntLayout>
   );
 }

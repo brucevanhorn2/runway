@@ -46,6 +46,16 @@ const ROW_HEIGHT = 24;
 const NODE_PADDING = 12;
 
 /**
+ * Extract the plain table/type name from a potentially compound node ID.
+ * In db-grouped mode node IDs take the form "dbKey::tableName"; this strips the prefix.
+ */
+function getTableName(nodeId) {
+  if (!nodeId) return nodeId;
+  const sep = nodeId.indexOf('::');
+  return sep >= 0 ? nodeId.slice(sep + 2) : nodeId;
+}
+
+/**
  * Calculate dynamic node height based on column count
  */
 function calculateNodeHeight(table) {
@@ -180,7 +190,13 @@ function getDbGroupedLayoutElements(schema, projectRoot, databaseRoots, directio
   const groupLayouts = new Map();
 
   dbGroups.forEach((group, key) => {
-    const layout = layoutGroupContents(group.tables, group.types, schema, direction, collapsedNodes);
+    // collapsedNodes is keyed by compound IDs (e.g. "dbKey::tableName") in db-grouped mode.
+    // layoutGroupContents works with plain table names, so remap to plain-name keys.
+    const localCollapsed = {};
+    Object.entries(collapsedNodes).forEach(([k, v]) => {
+      localCollapsed[getTableName(k)] = localCollapsed[getTableName(k)] || v;
+    });
+    const layout = layoutGroupContents(group.tables, group.types, schema, direction, localCollapsed);
     groupLayouts.set(key, {
       ...layout,
       dbRoot: group.dbRoot,
@@ -253,12 +269,14 @@ function getDbGroupedLayoutElements(schema, projectRoot, databaseRoots, directio
 
     // Child nodes: positions are relative to the group parent.
     // extent: 'parent' prevents dragging outside the boundary box.
+    // Node IDs are made unique across databases using a compound key: "dbKey::tableName"
     layout.nodes.forEach(node => {
+      const compoundId = `${key}::${node.id}`;
       const table = schema.tables.find(t => t.name === node.id);
       const type = schema.types.find(t => t.name === node.id);
 
       allNodes.push({
-        id: node.id,
+        id: compoundId,
         type: node.type,
         parentNode: groupNodeId,
         extent: 'parent',
@@ -270,7 +288,7 @@ function getDbGroupedLayoutElements(schema, projectRoot, databaseRoots, directio
           ...(table ? { table } : {}),
           ...(type ? { type } : {}),
           ...nodeData,
-          isCollapsed: collapsedNodes[node.id] || false,
+          isCollapsed: collapsedNodes[compoundId] || false,
         },
       });
     });
@@ -278,8 +296,12 @@ function getDbGroupedLayoutElements(schema, projectRoot, databaseRoots, directio
 
   // Handle ungrouped items — position below all db group boxes
   if (ungrouped && (ungrouped.tables.length > 0 || ungrouped.types.length > 0)) {
+    const localCollapsed = {};
+    Object.entries(collapsedNodes).forEach(([k, v]) => {
+      localCollapsed[getTableName(k)] = localCollapsed[getTableName(k)] || v;
+    });
     const ungroupedLayout = layoutGroupContents(
-      ungrouped.tables, ungrouped.types, schema, direction, collapsedNodes
+      ungrouped.tables, ungrouped.types, schema, direction, localCollapsed
     );
 
     let maxY = 0;
@@ -311,17 +333,35 @@ function getDbGroupedLayoutElements(schema, projectRoot, databaseRoots, directio
     });
   }
 
-  // Create all FK edges
+  // Build a map from plain table name → array of compound node IDs (multiple DBs may share a name).
+  // Ungrouped tables keep their plain name as the node ID.
+  const tableNodeIdMultiMap = new Map();
+  allNodes.forEach(node => {
+    if (node.type === 'table' || node.type === 'type') {
+      const baseName = getTableName(node.id);
+      if (!tableNodeIdMultiMap.has(baseName)) tableNodeIdMultiMap.set(baseName, []);
+      tableNodeIdMultiMap.get(baseName).push(node.id);
+    }
+  });
+
+  // Create all FK edges, resolving source/target to compound node IDs.
+  // Prefer a target that shares the same DB prefix as the source (same-DB FK).
   schema.tables.forEach(table => {
+    const sourceIds = tableNodeIdMultiMap.get(table.name) || [table.name];
+    const sourceId = sourceIds[0]; // There is exactly one node per table per DB
+    const sourcePrefix = sourceId.includes('::') ? sourceId.split('::')[0] : null;
     table.foreignKeys.forEach((fk, fkIndex) => {
+      const candidates = tableNodeIdMultiMap.get(fk.referencedTable) || [fk.referencedTable];
+      // Prefer a candidate in the same DB; otherwise take the first available
+      const targetId = (sourcePrefix && candidates.find(id => id.startsWith(`${sourcePrefix}::`))) || candidates[0];
       const edgeLabel = edgeConfig.showLabels
         ? (fk.constraintName || fk.columns.join(', '))
         : undefined;
 
       allEdges.push({
-        id: `${table.name}-${fk.referencedTable}-${fkIndex}`,
-        source: table.name,
-        target: fk.referencedTable,
+        id: `${sourceId}-${targetId}-${fkIndex}`,
+        source: sourceId,
+        target: targetId,
         type: 'smoothstep',
         animated: edgeConfig.animated,
         style: { stroke: '#6997d5', strokeWidth: 2 },
@@ -757,15 +797,25 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
         edgeConfig
       );
 
-      // Add selection and filter state to non-group nodes
+      // Add selection, match, and filter state to non-group nodes.
+      // node IDs are compound ("dbKey::tableName") so we compare by base name for matching.
+      const selectedBaseName = selectedTable ? getTableName(selectedTable) : null;
       const nodesWithState = result.nodes.map(node => {
         if (node.type === 'databaseGroup') return node;
+        const nodeBaseName = getTableName(node.id);
+        // isSelected: exact compound ID match, or plain-name match (e.g. from analysis panel)
+        const isSelected = selectedTable === node.id ||
+          (!selectedTable?.includes('::') && selectedTable === nodeBaseName);
+        // isMatched: same table name in a different database (only when a compound ID is active)
+        const isMatched = !isSelected &&
+          !!(selectedTable?.includes('::') && selectedBaseName === nodeBaseName);
         return {
           ...node,
           data: {
             ...node.data,
-            isSelected: selectedTable === node.id,
-            isFiltered: matchesFilter(node.id),
+            isSelected,
+            isMatched,
+            isFiltered: matchesFilter(nodeBaseName),
           },
         };
       });
@@ -801,6 +851,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
           data: {
             ...node.data,
             isSelected: selectedTable === node.id,
+            isMatched: false,
             isFiltered: matchesFilter(node.id),
           },
         };
@@ -822,6 +873,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
         data: {
           table,
           isSelected: selectedTable === table.name,
+          isMatched: false,
           isCollapsed: collapsedNodes[table.name] || false,
           isFiltered: matchesFilter(table.name),
           onToggleCollapse: handleToggleCollapse,
@@ -923,23 +975,25 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   // Focus on selected table when selection changes
   useEffect(() => {
     if (selectedTable && selectedTable !== prevSelectedTableRef.current) {
-      const node = nodes.find(n => n.id === selectedTable);
+      // Exact match first (compound ID), fallback to base-name match (plain-name selection)
+      const node = nodes.find(n => n.id === selectedTable) ||
+        nodes.find(n => getTableName(n.id) === selectedTable);
       if (node && node.position) {
         // Calculate the center of the node
         let height, width;
         if (node.type === 'type') {
-          const type = schema.types.find(t => t.name === selectedTable);
+          const type = node.data?.type || schema.types.find(t => t.name === getTableName(selectedTable));
           height = type ? calculateTypeHeight(type) : 100;
           width = TYPE_NODE_WIDTH;
         } else {
-          const table = schema.tables.find(t => t.name === selectedTable);
+          const table = node.data?.table || schema.tables.find(t => t.name === getTableName(selectedTable));
           height = table ? calculateNodeHeight(table) : 150;
           width = NODE_WIDTH;
         }
-        
+
         const centerX = node.position.x + width / 2;
         const centerY = node.position.y + height / 2;
-        
+
         // Center the view on this node with animation
         setCenter(centerX, centerY, { zoom: 1, duration: 400 });
       }
@@ -1019,10 +1073,11 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     // Ignore clicks on container nodes
     if (node.type === 'databaseGroup' || node.type === 'group') return;
 
-    selectTable(node.id);
+    // node.data.table carries the full table object (including sourceFile) for the clicked instance
+    const table = node.data?.table || schema.tables.find(t => t.name === getTableName(node.id));
+    selectTable(node.id, table?.sourceFile || null);
 
-    // Find the table and notify parent to highlight in file tree
-    const table = schema.tables.find(t => t.name === node.id);
+    // Notify parent to highlight the correct file in the file tree
     if (table && onTableSelect) {
       onTableSelect(table.name, table.sourceFile);
     }
@@ -1047,8 +1102,10 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   const handleGoToDefinition = useCallback(() => {
     if (!contextMenu?.node) return;
     const nodeId = contextMenu.node.id;
-    const table = schema.tables.find(t => t.name === nodeId);
-    const type = schema.types.find(t => t.name === nodeId);
+    const baseName = getTableName(nodeId);
+    // Prefer table object stored in node data (correct instance in db-grouped mode)
+    const table = contextMenu.node.data?.table || schema.tables.find(t => t.name === baseName);
+    const type = contextMenu.node.data?.type || schema.types.find(t => t.name === baseName);
 
     if (table && onGoToDefinition) {
       onGoToDefinition(table.name, table.sourceFile);
@@ -1060,9 +1117,8 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   // Context menu: Find Usages
   const handleFindUsages = useCallback(() => {
     if (!contextMenu?.node) return;
-    const nodeId = contextMenu.node.id;
     if (onFindUsages) {
-      onFindUsages(nodeId);
+      onFindUsages(getTableName(contextMenu.node.id));
     }
   }, [contextMenu, onFindUsages]);
 
@@ -1079,11 +1135,11 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     if (node && node.position) {
       let height, width;
       if (node.type === 'type') {
-        const type = schema.types.find(t => t.name === node.id);
+        const type = node.data?.type || schema.types.find(t => t.name === getTableName(node.id));
         height = type ? calculateTypeHeight(type) : 100;
         width = TYPE_NODE_WIDTH;
       } else {
-        const table = schema.tables.find(t => t.name === node.id);
+        const table = node.data?.table || schema.tables.find(t => t.name === getTableName(node.id));
         height = table ? calculateNodeHeight(table) : 150;
         width = NODE_WIDTH;
       }
@@ -1096,7 +1152,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
   // Context menu: Copy Name
   const handleCopyName = useCallback(() => {
     if (!contextMenu?.node) return;
-    navigator.clipboard.writeText(contextMenu.node.id);
+    navigator.clipboard.writeText(getTableName(contextMenu.node.id));
   }, [contextMenu]);
 
   // Toolbar: Search/filter
@@ -1149,7 +1205,8 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
 
   // Toolbar: Collapse/expand all
   const handleToggleAllCollapsed = useCallback(() => {
-    const allIds = [...schema.tables.map(t => t.name), ...schema.types.map(t => t.name)];
+    // Use actual node IDs from the rendered diagram (may be compound in db-grouped mode)
+    const allIds = nodes.filter(n => n.type === 'table' || n.type === 'type').map(n => n.id);
     const allCollapsed = allIds.every(id => collapsedNodes[id]);
 
     if (allCollapsed) {
@@ -1161,18 +1218,19 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
       allIds.forEach(id => { newCollapsed[id] = true; });
       setCollapsedNodes(newCollapsed);
     }
-  }, [schema, collapsedNodes]);
+  }, [nodes, collapsedNodes]);
 
   // Check if all nodes are collapsed
   const allNodesCollapsed = useMemo(() => {
-    const allIds = [...schema.tables.map(t => t.name), ...schema.types.map(t => t.name)];
+    const allIds = nodes.filter(n => n.type === 'table' || n.type === 'type').map(n => n.id);
     return allIds.length > 0 && allIds.every(id => collapsedNodes[id]);
-  }, [schema, collapsedNodes]);
+  }, [nodes, collapsedNodes]);
 
   // Helper to get node dimensions
   const getNodeDimensions = useCallback((nodeId) => {
-    const table = schema.tables.find(t => t.name === nodeId);
-    const type = schema.types.find(t => t.name === nodeId);
+    const baseName = getTableName(nodeId);
+    const table = schema.tables.find(t => t.name === baseName);
+    const type = schema.types.find(t => t.name === baseName);
     if (type) {
       return { width: TYPE_NODE_WIDTH, height: calculateTypeHeight(type) };
     }
@@ -1375,7 +1433,11 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
           <Controls />
           {showMinimap && (
             <MiniMap
-              nodeColor={(node) => node.id === selectedTable ? '#f5c518' : '#0e639c'}
+              nodeColor={(node) => {
+                if (node.id === selectedTable || (!selectedTable?.includes('::') && selectedTable === getTableName(node.id))) return '#f5c518';
+                if (selectedTable?.includes('::') && getTableName(selectedTable) === getTableName(node.id) && node.id !== selectedTable) return '#00b894';
+                return '#0e639c';
+              }}
               maskColor="rgba(0, 0, 0, 0.8)"
             />
           )}
