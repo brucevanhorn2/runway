@@ -655,12 +655,15 @@ async function scanProjectFiles(dirPath, basePath = dirPath) {
         const subFiles = await scanProjectFiles(fullPath, basePath);
         files.push(...subFiles);
       }
-    } else if (entry.isFile() && (entry.name.endsWith('.sql') || entry.name.endsWith('.md'))) {
-      files.push({
-        name: entry.name,
-        path: fullPath,
-        relativePath: relativePath,
-      });
+    } else if (entry.isFile()) {
+      // Include all files; skip hidden files and .runway-db markers
+      if (!entry.name.startsWith('.') && entry.name !== '.runway-db') {
+        files.push({
+          name: entry.name,
+          path: fullPath,
+          relativePath: relativePath,
+        });
+      }
     }
   }
 
@@ -732,7 +735,7 @@ function containsDiagramDDL(content) {
 
 /**
  * Determine the type of file content
- * Returns: 'table', 'enum', 'markdown', or 'other'
+ * Returns: 'table', 'enum', 'markdown', 'json', 'javascript', 'text', 'yaml', 'markup', 'other', or 'unknown'
  */
 function getFileType(content, filePath = '') {
   // Check for markdown files by extension
@@ -740,22 +743,36 @@ function getFileType(content, filePath = '') {
     return 'markdown';
   }
 
-  // Remove comments to avoid false positives
-  const cleanContent = content
-    .replace(/--.*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '');
-
-  // Check for CREATE TABLE (prioritize table over enum if both present)
-  if (/CREATE\s+TABLE\s+/i.test(cleanContent)) {
-    return 'table';
+  // Check for other common file types by extension
+  if (filePath) {
+    if (filePath.endsWith('.json')) return 'json';
+    if (filePath.match(/\.(js|jsx|ts|tsx)$/)) return 'javascript';
+    if (filePath.match(/\.(txt|log|csv)$/)) return 'text';
+    if (filePath.match(/\.(yml|yaml)$/)) return 'yaml';
+    if (filePath.match(/\.(xml|html|htm)$/)) return 'markup';
   }
 
-  // Check for CREATE TYPE ... AS ENUM
-  if (/CREATE\s+TYPE\s+[\w."]+\s+AS\s+ENUM/i.test(cleanContent)) {
-    return 'enum';
+  // For .sql files, analyze content
+  if (filePath && filePath.endsWith('.sql')) {
+    // Remove comments to avoid false positives
+    const cleanContent = content
+      .replace(/--.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+
+    // Check for CREATE TABLE (prioritize table over enum if both present)
+    if (/CREATE\s+TABLE\s+/i.test(cleanContent)) {
+      return 'table';
+    }
+
+    // Check for CREATE TYPE ... AS ENUM
+    if (/CREATE\s+TYPE\s+[\w."]+\s+AS\s+ENUM/i.test(cleanContent)) {
+      return 'enum';
+    }
+
+    return 'other'; // Other SQL content (CREATE INDEX, ALTER TABLE, etc.)
   }
 
-  return 'other';
+  return 'unknown'; // Unrecognized file type
 }
 
 /**

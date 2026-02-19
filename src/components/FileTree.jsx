@@ -15,11 +15,15 @@ import {
   PlusSquareOutlined,
   MinusSquareOutlined,
   DatabaseOutlined,
+  FileTextOutlined,
+  CodeOutlined,
+  FileExcelOutlined,
 } from '@ant-design/icons';
 import DatabaseRootModal from './DatabaseRootModal';
 
 // File type styling configuration
 const FILE_TYPE_CONFIG = {
+  // SQL files - prominent
   table: {
     icon: TableOutlined,
     color: '#58a6ff',  // Blue for tables
@@ -28,13 +32,40 @@ const FILE_TYPE_CONFIG = {
     icon: UnorderedListOutlined,
     color: '#d2a8ff',  // Purple for enums
   },
-  markdown: {
-    icon: FileMarkdownOutlined,
-    color: '#e6db74',  // Yellow/gold for markdown - prominent!
-  },
   other: {
     icon: FileOutlined,
-    color: '#6e7681',  // Gray for other files
+    color: '#58a6ff',  // Blue for other SQL files
+  },
+  // Markdown - prominent
+  markdown: {
+    icon: FileMarkdownOutlined,
+    color: '#e6db74',  // Yellow/gold for markdown
+  },
+  // Other file types - dimmed
+  json: {
+    icon: FileExcelOutlined,
+    color: '#555',  // Dimmed gray
+  },
+  javascript: {
+    icon: CodeOutlined,
+    color: '#555',  // Dimmed gray
+  },
+  text: {
+    icon: FileTextOutlined,
+    color: '#555',  // Dimmed gray
+  },
+  yaml: {
+    icon: FileTextOutlined,
+    color: '#555',  // Dimmed gray
+  },
+  markup: {
+    icon: CodeOutlined,
+    color: '#555',  // Dimmed gray
+  },
+  // Fallback for unknown file types
+  unknown: {
+    icon: FileOutlined,
+    color: '#555',  // Dimmed gray
   },
 };
 
@@ -86,7 +117,7 @@ function buildTree(files, rootPath) {
           children: toTreeData(value, newRelativePath),
         };
       } else {
-        const typeConfig = FILE_TYPE_CONFIG[value.file.fileType] || FILE_TYPE_CONFIG.other;
+        const typeConfig = FILE_TYPE_CONFIG[value.file.fileType] || FILE_TYPE_CONFIG.unknown;
         return {
           key: value.file.path,
           title: key,
@@ -118,7 +149,16 @@ function getParentFolderKeys(filePath, files) {
   return keys;
 }
 
-function FileTree({ files, onFileSelect, highlightedFile, folderPath, databaseRoots = [], onDatabaseRootChange }) {
+function FileTree({
+  files,
+  onFileSelect,
+  highlightedFile,
+  folderPath,
+  databaseRoots = [],
+  onDatabaseRootChange,
+  showNonSqlFiles = true,
+  showMarkdownFiles = true,
+}) {
   const [expandedKeys, setExpandedKeys] = useState([]);
   const [contextMenu, setContextMenu] = useState({ visible: false, node: null, x: 0, y: 0 });
   const [renameModal, setRenameModal] = useState({ visible: false, node: null, newName: '' });
@@ -136,11 +176,25 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath, databaseRo
     return databaseRoots.find(r => r.folderPath === absolutePath) || null;
   }, [databaseRoots]);
 
-  // Build tree data from flat file list
+  // Filter files based on toggle settings
+  const filteredFiles = useMemo(() => {
+    if (!files) return [];
+    return files.filter(file => {
+      const { fileType } = file;
+      // Always show SQL files (table, enum, other)
+      if (['table', 'enum', 'other'].includes(fileType)) return true;
+      // Show markdown if toggle is on
+      if (fileType === 'markdown') return showMarkdownFiles;
+      // Show other files if toggle is on
+      return showNonSqlFiles;
+    });
+  }, [files, showNonSqlFiles, showMarkdownFiles]);
+
+  // Build tree data from filtered file list
   const treeData = useMemo(() => {
-    if (!files || files.length === 0) return [];
-    return buildTree(files, folderPath);
-  }, [files, folderPath]);
+    if (!filteredFiles || filteredFiles.length === 0) return [];
+    return buildTree(filteredFiles, folderPath);
+  }, [filteredFiles, folderPath]);
 
   // Get all descendant folder keys for expand all
   const getAllDescendantKeys = useCallback((node) => {
@@ -453,14 +507,16 @@ function FileTree({ files, onFileSelect, highlightedFile, folderPath, databaseRo
   // Custom title renderer for styling
   const titleRender = (nodeData) => {
     const isHighlighted = !nodeData.isFolder && highlightedFile === nodeData.key;
-    const isOtherFile = !nodeData.isFolder && nodeData.file?.fileType === 'other';
+    // Dim non-SQL/non-MD files (json, javascript, text, yaml, markup, unknown)
+    const isDimmed = !nodeData.isFolder &&
+      ['json', 'javascript', 'text', 'yaml', 'markup', 'unknown'].includes(nodeData.file?.fileType);
     const dbRoot = nodeData.isFolder ? getDatabaseRoot(nodeData.folderPath) : null;
 
     return (
       <span
         data-tree-node-key={nodeData.key}
         style={{
-          color: isOtherFile ? '#6e7681' : undefined,
+          color: isDimmed ? '#555' : undefined,
           fontWeight: isHighlighted ? 'bold' : undefined,
           display: 'inline-flex',
           alignItems: 'center',

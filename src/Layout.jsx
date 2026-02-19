@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Layout as AntLayout, Splitter } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  SearchOutlined,
+  WarningOutlined,
+  FolderOutlined,
+  FileTextOutlined,
+  FilterOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
+} from '@ant-design/icons';
 import FileTree from './components/FileTree';
 import SchemaView from './components/SchemaView';
 import SqlTabs from './components/SqlTabs';
@@ -33,6 +43,8 @@ const { Header, Content } = AntLayout;
 
 function LayoutInner() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [showNonSqlFiles, setShowNonSqlFiles] = useState(false);
+  const [showMarkdownFiles, setShowMarkdownFiles] = useState(true);
   const [sqlFiles, setSqlFiles] = useState([]);
   const [openFolderPath, setOpenFolderPath] = useState(null);
   const [highlightedFile, setHighlightedFile] = useState(null);
@@ -601,32 +613,113 @@ function LayoutInner() {
           >
             {/* Left Pane - File Browser */}
             <Splitter.Pane
-              size={leftCollapsed ? 0 : (isLoaded ? settings.splitter.leftPaneSize : '20%')}
-              min="0%"
-              max="40%"
+              size={leftCollapsed ? '48px' : (isLoaded ? settings.splitter.leftPaneSize : '20%')}
+              min={leftCollapsed ? '48px' : '0%'}
+              max={leftCollapsed ? '48px' : '40%'}
               resizable={!leftCollapsed}
               style={{
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
+                background: '#252526',
               }}
             >
-              <div className="pane-header">
-                <span>SQL Files</span>
-                <button onClick={() => setLeftCollapsed(!leftCollapsed)}>
-                  {leftCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                </button>
-              </div>
-              <div style={{ flex: 1, overflow: 'auto', background: '#1e1e1e' }}>
-                <FileTree
-                  files={sqlFiles}
-                  onFileSelect={handleFileSelect}
-                  highlightedFile={highlightedFile}
-                  folderPath={openFolderPath}
-                  databaseRoots={databaseRoots}
-                  onDatabaseRootChange={() => openFolderPath && loadDatabaseRoots(openFolderPath)}
-                />
-              </div>
+              {leftCollapsed ? (
+                // Collapsed: Show vertical icon strip (VS Code style)
+                <div
+                  style={{
+                    width: '48px',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    paddingTop: '8px',
+                    background: '#252526',
+                    borderRight: '1px solid #333',
+                  }}
+                >
+                  <button
+                    onClick={() => setLeftCollapsed(false)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#ccc',
+                      cursor: 'pointer',
+                      padding: '8px',
+                      fontSize: '20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title="Show file browser"
+                  >
+                    <FolderOutlined />
+                  </button>
+                </div>
+              ) : (
+                // Expanded: Show file browser with filters
+                <>
+                  <div className="pane-header" style={{ flexShrink: 0 }}>
+                    <span>Files</span>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      {/* Filter toggles */}
+                      <button
+                        onClick={() => setShowMarkdownFiles(!showMarkdownFiles)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #555',
+                          borderRadius: '3px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          color: showMarkdownFiles ? '#e6db74' : '#666',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                        }}
+                        title={showMarkdownFiles ? 'Hide markdown files' : 'Show markdown files'}
+                      >
+                        {showMarkdownFiles ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                        <FileTextOutlined style={{ fontSize: '10px' }} />
+                      </button>
+                      <button
+                        onClick={() => setShowNonSqlFiles(!showNonSqlFiles)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #555',
+                          borderRadius: '3px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          color: showNonSqlFiles ? '#ccc' : '#666',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                        }}
+                        title={showNonSqlFiles ? 'Hide other files' : 'Show other files'}
+                      >
+                        {showNonSqlFiles ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                        <FilterOutlined style={{ fontSize: '10px' }} />
+                      </button>
+                      <button onClick={() => setLeftCollapsed(true)}>
+                        <MenuFoldOutlined />
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, overflow: 'auto', background: '#1e1e1e' }}>
+                    <FileTree
+                      files={sqlFiles}
+                      onFileSelect={handleFileSelect}
+                      highlightedFile={highlightedFile}
+                      folderPath={openFolderPath}
+                      databaseRoots={databaseRoots}
+                      onDatabaseRootChange={() => openFolderPath && loadDatabaseRoots(openFolderPath)}
+                      showNonSqlFiles={showNonSqlFiles}
+                      showMarkdownFiles={showMarkdownFiles}
+                    />
+                  </div>
+                </>
+              )}
             </Splitter.Pane>
 
           {/* Center Pane - Diagram and Editor */}
