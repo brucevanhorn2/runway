@@ -1,6 +1,7 @@
 node_modules/
 dist/
 release/
+.idea/
 .DS_Store
 *.log
 npm-debug.log*
