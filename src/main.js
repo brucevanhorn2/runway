@@ -728,8 +728,8 @@ async function scanDatabaseRoots(dirPath, basePath = dirPath) {
  * Check if SQL content contains diagram-relevant DDL (CREATE TABLE or CREATE TYPE ENUM)
  * Excludes files that only contain database setup (CREATE DATABASE, GRANT, etc.)
  */
-function containsDiagramDDL(content) {
-  const fileType = getFileType(content);
+function containsDiagramDDL(content, filePath) {
+  const fileType = getFileType(content, filePath);
   return fileType === 'table' || fileType === 'enum';
 }
 
@@ -880,7 +880,7 @@ const setupIPC = () => {
       for (const file of files) {
         const content = await fs.readFile(file.path, 'utf-8');
         // Only include files that contain CREATE TABLE or CREATE TYPE ENUM
-        if (containsDiagramDDL(content)) {
+        if (containsDiagramDDL(content, file.path)) {
           fileContents.push({
             ...file,
             content,
