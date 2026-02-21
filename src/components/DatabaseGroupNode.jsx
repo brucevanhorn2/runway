@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { DatabaseOutlined } from '@ant-design/icons';
+import { NodeResizer } from 'reactflow';
 
 export function hexToRgba(hex, alpha) {
   const h = hex.replace('#', '');
@@ -9,8 +10,8 @@ export function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const DatabaseGroupNode = memo(({ data }) => {
-  const { name, description, color, tableCount, typeCount } = data;
+const DatabaseGroupNode = memo(({ id, data, selected }) => {
+  const { name, description, color, tableCount, typeCount, onGroupResize } = data;
   const safeColor = color || '#4a9eff';
 
   return (
@@ -29,6 +30,15 @@ const DatabaseGroupNode = memo(({ data }) => {
         boxShadow: `inset 0 0 0 1px ${hexToRgba(safeColor, 0.25)}`,
       }}
     >
+      <NodeResizer
+        color={safeColor}
+        isVisible={selected}
+        minWidth={200}
+        minHeight={120}
+        onResizeEnd={(_event, params) => {
+          if (onGroupResize) onGroupResize(id, params.width, params.height);
+        }}
+      />
       {/* Header badge — floats above the top-left corner of the container */}
       <div
         style={{

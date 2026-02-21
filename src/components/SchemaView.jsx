@@ -715,7 +715,7 @@ function getGroupedLayoutElements(schema, projectRoot, direction, collapsedNodes
 function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projectRoot, databaseRoots = [] }) {
   const { schema, isLoading, error } = useSchema();
   const { selectTable, selectedTable } = useSelection();
-  const { settings, updateNodePositions, isLoaded: settingsLoaded } = useProjectSettings();
+  const { settings, updateNodePositions, updateGroupSizes, isLoaded: settingsLoaded } = useProjectSettings();
   const { preferences } = useUserPreferences();
   const { fitView, setCenter } = useReactFlow();
   const nodePositionsRef = useRef({});
@@ -768,6 +768,19 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     }));
   }, []);
 
+  // Ref keeps latest group sizes available inside stable callbacks without triggering useMemo
+  const groupSizesRef = useRef(settings.groupSizes || {});
+  useEffect(() => {
+    groupSizesRef.current = settings.groupSizes || {};
+  }, [settings.groupSizes]);
+
+  // Callback passed to each databaseGroup node so it can report resize end
+  const handleGroupResize = useCallback((nodeId, width, height) => {
+    const newSizes = { ...groupSizesRef.current, [nodeId]: { width, height } };
+    groupSizesRef.current = newSizes;
+    updateGroupSizes(newSizes);
+  }, [updateGroupSizes]);
+
   // Check if a node matches the filter
   const matchesFilter = useCallback((name) => {
     if (!filterQuery) return null; // null means no filtering active
@@ -801,7 +814,13 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
       // node IDs are compound ("dbKey::tableName") so we compare by base name for matching.
       const selectedBaseName = selectedTable ? getTableName(selectedTable) : null;
       const nodesWithState = result.nodes.map(node => {
-        if (node.type === 'databaseGroup') return node;
+        if (node.type === 'databaseGroup') {
+          return {
+            ...node,
+            selectable: true,
+            data: { ...node.data, onGroupResize: handleGroupResize },
+          };
+        }
         const nodeBaseName = getTableName(node.id);
         // isSelected: exact compound ID match, or plain-name match (e.g. from analysis panel)
         const isSelected = selectedTable === node.id ||
@@ -921,7 +940,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
     });
 
     return { schemaNodes, schemaEdges };
-  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, preferences, groupByFolder, groupByDb, projectRoot, layoutDirection, databaseRoots]);
+  }, [schema, selectedTable, collapsedNodes, matchesFilter, handleToggleCollapse, handleGroupResize, preferences, groupByFolder, groupByDb, projectRoot, layoutDirection, databaseRoots]);
 
   // Apply layout when schema changes
   useEffect(() => {
@@ -930,7 +949,19 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
 
       // When grouping by folder or database, nodes already have absolute positions
       if (groupByFolder || groupByDb) {
-        layoutedNodes = schemaNodes;
+        if (groupByDb) {
+          // Re-apply any saved group sizes so manual resizes survive layout recomputes
+          const savedSizes = settings.groupSizes || {};
+          layoutedNodes = schemaNodes.map(node => {
+            if (node.type === 'databaseGroup' && savedSizes[node.id]) {
+              const { width, height } = savedSizes[node.id];
+              return { ...node, style: { ...node.style, width, height } };
+            }
+            return node;
+          });
+        } else {
+          layoutedNodes = schemaNodes;
+        }
         console.log('[SchemaView] Applied grouped layout');
       } else {
         // Check if we have saved positions for all nodes
@@ -970,7 +1001,7 @@ function SchemaViewInner({ onTableSelect, onGoToDefinition, onFindUsages, projec
       nodePositionsRef.current = {};
       isInitialLayoutRef.current = true;
     }
-  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settingsLoaded, layoutDirection, collapsedNodes, groupByFolder, groupByDb]);
+  }, [schemaNodes, schemaEdges, schema, setNodes, setEdges, settings.nodePositions, settings.groupSizes, settingsLoaded, layoutDirection, collapsedNodes, groupByFolder, groupByDb]);
 
   // Focus on selected table when selection changes
   useEffect(() => {

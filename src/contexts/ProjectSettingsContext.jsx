@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
     diagramPaneSize: '60%',
   },
   nodePositions: {},  // { nodeId: { x, y } }
+  groupSizes: {},     // { nodeId: { width, height } } for databaseGroup nodes
 };
 
 // Debounce helper to avoid saving too frequently
@@ -127,6 +128,20 @@ export function ProjectSettingsProvider({ children }) {
     });
   }, [folderPath, debouncedSave]);
 
+  // Update group node sizes (db-grouped mode)
+  const updateGroupSizes = useCallback((sizes) => {
+    setSettings(prev => {
+      const newSettings = {
+        ...prev,
+        groupSizes: sizes,
+      };
+      if (folderPath) {
+        debouncedSave(folderPath, newSettings);
+      }
+      return newSettings;
+    });
+  }, [folderPath, debouncedSave]);
+
   // Update a single node position
   const updateNodePosition = useCallback((nodeId, position) => {
     setSettings(prev => {
@@ -177,6 +192,7 @@ export function ProjectSettingsProvider({ children }) {
     resetSplitterSizes,
     updateNodePositions,
     updateNodePosition,
+    updateGroupSizes,
     clearSettings,
   };
 
